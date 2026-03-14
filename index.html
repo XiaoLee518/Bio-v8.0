@@ -1,0 +1,3421 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 BioMonitor v2</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.5.0/FileSaver.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f14;--bg2:#13161e;--bg3:#1a1e28;--bg4:#222636;
+  --line:#2a2f3e;--text:#c8cdd8;--text2:#7a8099;--text3:#454d66;
+  --accent:#4a9eff;--accent2:#2d7dd2;
+  --green:#3ecf8e;--red:#f2666a;--yellow:#f0b429;--purple:#9b7fe8;
+  --hr:#f2666a;--gsr:#f0b429;--rr:#3ecf8e;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;height:100vh;overflow:hidden}
+
+/* ---- Sidebar ---- */
+.sidebar{width:196px;background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-logo{padding:18px 16px 14px;border-bottom:1px solid var(--line)}
+.sidebar-logo .brand{font-family:var(--mono);font-size:0.65rem;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:3px}
+.sidebar-logo .name{font-size:0.95rem;font-weight:700;color:var(--text)}
+.nav-list{padding:10px 8px;flex:1}
+.nav-item{display:block;width:100%;padding:9px 12px;background:none;border:none;color:var(--text2);font-family:var(--sans);font-size:0.82rem;text-align:left;cursor:pointer;border-radius:5px;margin-bottom:2px;transition:background .15s,color .15s}
+.nav-item:hover{background:var(--bg3);color:var(--text)}
+.nav-item.active{background:var(--bg4);color:var(--accent);font-weight:600}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--line)}
+.ble-row{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:0.7rem;color:var(--text3)}
+.ble-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0}
+.ble-dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+
+/* ---- Layout ---- */
+.main{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.page{display:none;flex-direction:column;min-height:100%}
+.page.active{display:flex}
+.page-header{padding:14px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--bg2);gap:10px;flex-wrap:wrap}
+.page-title{font-size:0.75rem;font-weight:600;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase}
+.page-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.page-body{flex:1;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+
+/* ---- Buttons ---- */
+.btn{padding:6px 13px;border:1px solid var(--line);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:0.78rem;font-weight:600;cursor:pointer;border-radius:4px;transition:.15s}
+.btn:hover{background:var(--bg4);border-color:var(--text3)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn-danger{background:transparent;border-color:var(--red);color:var(--red)}
+.btn-danger:hover{background:rgba(242,102,106,.1)}
+.btn-success{background:transparent;border-color:var(--green);color:var(--green)}
+.btn-success:hover{background:rgba(62,207,142,.1)}
+.btn-warning{background:transparent;border-color:var(--yellow);color:var(--yellow)}
+.btn-warning:hover{background:rgba(240,180,41,.1)}
+
+/* ---- Card ---- */
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:6px}
+
+/* ---- Timer bar ---- */
+.timer-row{display:flex;align-items:center;gap:18px;padding:13px 18px;flex-wrap:wrap}
+.timer-block{display:flex;flex-direction:column}
+.timer-label{font-family:var(--mono);font-size:0.62rem;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}
+.timer-value{font-family:var(--mono);font-size:2rem;font-weight:600;color:var(--text);letter-spacing:2px;line-height:1}
+.timer-value.rec{color:var(--red)} .timer-value.cal{color:var(--yellow)}
+.timer-sep{width:1px;height:44px;background:var(--line);flex-shrink:0}
+.phase-badge{font-family:var(--mono);font-size:0.7rem;padding:4px 10px;border-radius:3px;letter-spacing:.5px}
+.ph-idle{background:var(--bg4);color:var(--text3)}
+.ph-calib{background:rgba(240,180,41,.12);color:var(--yellow);border:1px solid rgba(240,180,41,.25)}
+.ph-run{background:rgba(242,102,106,.12);color:var(--red);border:1px solid rgba(242,102,106,.25)}
+.ph-paused{background:rgba(155,127,232,.12);color:var(--purple);border:1px solid rgba(155,127,232,.25)}
+
+/* ---- Stress gauge ---- */
+.gauge-wrap{padding:13px 18px}
+.gauge-top{display:flex;align-items:center;gap:18px;margin-bottom:10px}
+.gauge-score{font-family:var(--mono);font-size:2.4rem;font-weight:600;min-width:74px;line-height:1}
+.gauge-detail{flex:1}
+.gauge-track{position:relative;height:26px;background:var(--bg3);border-radius:13px;border:1px solid var(--line);overflow:hidden}
+.gauge-fill{height:100%;border-radius:13px;background:linear-gradient(90deg,var(--green),var(--yellow),var(--red));transition:width .5s,opacity .3s}
+.gauge-needle{position:absolute;top:0;bottom:0;width:2px;background:#fff;border-radius:1px;transition:left .5s;transform:translateX(-50%)}
+.gauge-ticks{display:flex;justify-content:space-between;margin-top:5px;font-family:var(--mono);font-size:0.62rem;color:var(--text3)}
+.gauge-formula{font-size:0.7rem;color:var(--text3);font-family:var(--mono);margin-top:6px}
+.gauge-level{font-size:0.8rem;color:var(--text2)}
+
+/* ---- Overview chart ---- */
+.chart-wrap{position:relative;overflow:hidden}
+.chart-section{padding:14px 18px;min-width:0}
+.chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;flex-wrap:wrap;gap:6px}
+.chart-title{font-family:var(--mono);font-size:0.63rem;color:var(--text3);letter-spacing:1px;text-transform:uppercase}
+.legend{display:flex;gap:14px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:5px;font-size:0.68rem;color:var(--text2)}
+.leg-dot{width:8px;height:8px;border-radius:50%}
+.h200{height:200px} .h150{height:150px} .h120{height:120px}
+
+/* ---- Metrics grid ---- */
+.metrics-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.metric-card{background:var(--bg2);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.metric-head{padding:9px 13px 7px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.metric-name{font-family:var(--mono);font-size:0.63rem;letter-spacing:1px;text-transform:uppercase}
+.metric-unit{font-family:var(--mono);font-size:0.63rem;color:var(--text3)}
+.metric-body{padding:10px 13px}
+.val-pair{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:9px}
+.vg .vl{font-size:0.63rem;color:var(--text3);font-family:var(--mono);margin-bottom:2px}
+.vg .vn{font-family:var(--mono);font-size:1.3rem;font-weight:600;line-height:1}
+.vg .vr{font-size:0.68rem;color:var(--text3);font-family:var(--mono);margin-top:2px}
+
+/* ---- Stats table ---- */
+.st{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.72rem;margin-top:7px}
+.st th{padding:5px 8px;text-align:left;color:var(--text3);font-size:0.62rem;border-bottom:1px solid var(--line);font-weight:600;letter-spacing:.4px}
+.st td{padding:6px 8px;color:var(--text);border-bottom:1px solid rgba(42,47,62,.4)}
+.st tr:last-child td{border-bottom:none}
+.hl{color:var(--accent);font-weight:600}
+
+/* ---- GSR Alert ---- */
+.gsr-alert{padding:7px 13px;border-radius:4px;font-family:var(--mono);font-size:0.76rem;margin-top:7px;display:none}
+.gsr-alert.show{display:block}
+.gsr-ok{background:rgba(62,207,142,.07);color:var(--green);border:1px solid rgba(62,207,142,.18)}
+.gsr-warn{background:rgba(240,180,41,.07);color:var(--yellow);border:1px solid rgba(240,180,41,.18)}
+.gsr-hi{background:rgba(242,102,106,.07);color:var(--red);border:1px solid rgba(242,102,106,.18)}
+
+/* ---- Log table ---- */
+.log-wrap{max-height:170px;overflow-y:auto;border:1px solid var(--line);border-radius:4px}
+.lt{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.7rem}
+.lt th{padding:5px 9px;text-align:left;color:var(--text3);font-size:0.62rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg3);letter-spacing:.4px}
+.lt td{padding:4px 9px;color:var(--text2);border-bottom:1px solid rgba(42,47,62,.3)}
+
+/* ---- Sub tabs ---- */
+.sub-tabs{display:flex;border-bottom:1px solid var(--line);background:var(--bg2);flex-shrink:0}
+.sub-tab{padding:10px 17px;background:none;border:none;color:var(--text2);font-family:var(--sans);font-size:0.78rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:.15s}
+.sub-tab:hover{color:var(--text)}
+.sub-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.sub-page{display:none}
+.sub-page.active{display:block}
+
+/* ---- Anomaly list ---- */
+.anomaly-item{display:flex;align-items:center;gap:9px;padding:7px 13px;border-left:3px solid var(--red);background:rgba(242,102,106,.04);margin-bottom:5px;border-radius:0 4px 4px 0;font-size:0.78rem;font-family:var(--mono)}
+.an-time{color:var(--text3);min-width:65px}
+.an-val{color:var(--red);margin-left:auto}
+
+/* ---- Tool row (advanced) ---- */
+.tool-row{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tool-label{font-family:var(--mono);font-size:0.68rem;color:var(--text3);min-width:80px}
+.t-input{background:var(--bg3);border:1px solid var(--line);color:var(--text);padding:5px 9px;font-family:var(--mono);font-size:0.76rem;border-radius:4px;width:76px}
+.t-input:focus{outline:none;border-color:var(--accent)}
+.r-input{appearance:none;width:110px;height:4px;background:var(--bg4);border-radius:2px;cursor:pointer}
+.r-input::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);cursor:pointer}
+.r-val{font-family:var(--mono);font-size:0.76rem;color:var(--text2);min-width:36px;text-align:center}
+
+/* ---- Manual ---- */
+.manual-body{padding:22px;max-width:720px;line-height:1.7}
+.manual-h1{font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:11px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.manual-h2{font-size:0.78rem;font-weight:600;color:var(--accent);margin-bottom:7px;margin-top:16px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px}
+.manual-p{font-size:0.83rem;color:var(--text2);margin-bottom:7px}
+.manual-formula{background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:9px 15px;font-family:var(--mono);font-size:0.78rem;color:var(--green);margin:7px 0}
+.manual-table{width:100%;border-collapse:collapse;font-size:0.78rem;margin:9px 0}
+.manual-table th{text-align:left;padding:6px 11px;color:var(--text3);font-size:0.68rem;letter-spacing:.4px;border-bottom:1px solid var(--line)}
+.manual-table td{padding:7px 11px;color:var(--text2);border-bottom:1px solid rgba(42,47,62,.4)}
+.manual-table td:first-child{color:var(--text);font-weight:600}
+.copy-box{background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:15px;font-size:0.78rem;color:var(--text2);white-space:pre-wrap;font-family:var(--mono);position:relative;margin-top:7px}
+.copy-btn{position:absolute;top:8px;right:8px;padding:3px 9px;background:var(--bg4);border:1px solid var(--line);color:var(--text3);font-size:0.68rem;cursor:pointer;border-radius:3px;font-family:var(--mono)}
+.copy-btn:hover{color:var(--text)}
+
+/* ---- Settings ---- */
+.settings-body{padding:22px;max-width:580px}
+.settings-section{margin-bottom:22px}
+.settings-h{font-size:0.7rem;font-weight:600;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:11px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.setting-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(42,47,62,.35)}
+.setting-row:last-child{border-bottom:none}
+.setting-label{font-size:0.82rem;color:var(--text2)}
+.setting-desc{font-size:0.7rem;color:var(--text3);margin-top:1px}
+.s-input{background:var(--bg3);border:1px solid var(--line);color:var(--text);padding:5px 9px;font-family:var(--mono);font-size:0.78rem;border-radius:4px;width:86px;text-align:right}
+.s-input:focus{outline:none;border-color:var(--accent)}
+.weight-total{font-family:var(--mono);font-size:0.78rem;padding:7px 12px;border-radius:4px;margin-top:6px}
+.wt-ok{background:rgba(62,207,142,.07);color:var(--green);border:1px solid rgba(62,207,142,.18)}
+.wt-bad{background:rgba(242,102,106,.07);color:var(--red);border:1px solid rgba(242,102,106,.18)}
+
+/* ---- Modal ---- */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:999}
+.modal-overlay.show{display:flex}
+.modal-box{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:26px;width:340px}
+.modal-title{font-size:.92rem;font-weight:700;margin-bottom:10px}
+.modal-sub{font-size:.78rem;color:var(--text2);margin-bottom:18px}
+.modal-status{font-family:var(--mono);font-size:.74rem;color:var(--text3);margin-bottom:14px;min-height:18px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+
+/* ---- Scrollbars ---- */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--line)}
+
+.hidden{display:none!important}
+
+@media print {
+  body { background: #fff !important; }
+  .sidebar, .sub-tabs, .page-header, #subtab-report > div:first-child { display: none !important; }
+  .main, .page, .sub-page { overflow: visible !important; height: auto !important; }
+  #reportPage { box-shadow: none !important; margin: 0 !important; width: 100% !important; }
+  canvas { max-width: 100%; }
+}
+
+/* ---- Camera Recording ---- */
+#camIndicator{
+  display:inline-flex;align-items:center;gap:5px;
+  font-family:var(--mono);font-size:.68rem;padding:3px 9px;
+  border-radius:4px;background:rgba(242,102,106,.1);
+  border:1px solid rgba(242,102,106,.3);color:var(--red);
+  cursor:default;
+}
+#camIndicator .cam-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--red);
+  animation:blink 1s infinite;
+}
+#camIndicator.cam-off{background:var(--bg3);border-color:var(--line);color:var(--text3);}
+#camIndicator.cam-off .cam-dot{background:var(--text3);animation:none;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ---- Playback Modal ---- */
+#playbackModal{
+  position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.82);
+  display:none;align-items:center;justify-content:center;
+}
+#playbackModal.show{display:flex;}
+#playbackBox{
+  background:var(--bg2);border-radius:12px;padding:20px;
+  max-width:720px;width:92vw;box-shadow:0 8px 48px rgba(0,0,0,.6);
+  display:flex;flex-direction:column;gap:12px;
+}
+#playbackBox video{width:100%;border-radius:6px;background:#000;max-height:400px;}
+.pb-timeline{position:relative;height:28px;background:var(--bg3);border-radius:4px;overflow:hidden;cursor:pointer;}
+.pb-tl-bar{height:100%;background:linear-gradient(90deg,rgba(242,102,106,.3),rgba(240,180,41,.2));width:0%;}
+.pb-marker{position:absolute;top:0;height:100%;width:3px;background:var(--red);border-radius:2px;transform:translateX(-50%);cursor:pointer;}
+.pb-marker:hover::after{content:attr(data-label);position:absolute;top:-22px;left:50%;transform:translateX(-50%);
+  background:var(--bg4);color:var(--text);padding:2px 6px;border-radius:3px;font-size:.6rem;white-space:nowrap;font-family:var(--mono);}
+
+/* ---- Demo Float Panel ---- */
+#demoPanel{
+  position:fixed;bottom:22px;right:22px;z-index:9999;
+  background:var(--bg2);border:1px solid var(--purple);border-radius:10px;
+  box-shadow:0 4px 28px rgba(155,127,232,.35);
+  width:200px;font-family:var(--sans);
+  transition:opacity .2s;
+}
+
+/* ---- Control Authority Panel ---- */
+#ctrlPanel{
+  position:fixed;bottom:22px;left:22px;z-index:9998;
+  background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 4px 24px rgba(0,0,0,.35);
+  width:210px;font-family:var(--sans);
+  transition:opacity .2s;
+}
+#ctrlPanel.hidden{display:none}
+#ctrlPanelHead{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:9px 12px 8px;border-bottom:1px solid var(--line);cursor:move;user-select:none
+}
+#ctrlPanelHead .cp-title{font-size:.72rem;font-weight:700;color:var(--green);letter-spacing:.5px}
+#ctrlPanelClose{background:none;border:none;color:var(--text3);font-size:1rem;cursor:pointer;line-height:1;padding:0 2px}
+#ctrlPanelClose:hover{color:var(--red)}
+#ctrlPanelBody{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.cp-authority{display:flex;gap:0;border-radius:5px;overflow:hidden;border:1px solid var(--line);margin-bottom:2px}
+.cp-auth-btn{flex:1;padding:6px 0;font-size:.72rem;font-weight:600;cursor:pointer;border:none;
+  background:var(--bg3);color:var(--text3);transition:.15s;text-align:center}
+.cp-auth-btn.active{background:var(--green);color:#000;font-weight:700}
+.cp-auth-btn:hover:not(.active){background:var(--bg4);color:var(--text)}
+.cp-status{font-family:var(--mono);font-size:.62rem;color:var(--text3);line-height:1.5;padding:4px 0}
+.cp-status .cp-mode-tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.6rem;font-weight:700;margin-right:4px}
+.cp-mode-tag.esp{background:rgba(62,207,142,.15);color:var(--green);border:1px solid var(--green)}
+.cp-mode-tag.web{background:rgba(155,127,232,.15);color:var(--purple);border:1px solid var(--purple)}
+#demoPanel.hidden{display:none}
+#demoPanelHead{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:9px 12px 8px;border-bottom:1px solid var(--line);cursor:move;user-select:none
+}
+#demoPanelHead .dp-title{font-size:.72rem;font-weight:700;color:var(--purple);letter-spacing:.5px}
+#demoPanelClose{background:none;border:none;color:var(--text3);font-size:1rem;cursor:pointer;line-height:1;padding:0 2px}
+#demoPanelClose:hover{color:var(--red)}
+#demoPanelBody{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.dp-phase{font-family:var(--mono);font-size:.65rem;padding:4px 8px;border-radius:3px;text-align:center;letter-spacing:.5px;transition:.3s}
+.dp-btn{width:100%;padding:7px 0;border-radius:5px;font-size:.78rem;font-weight:600;cursor:pointer;border:1px solid;transition:.15s}
+.dp-btn-start{background:transparent;border-color:var(--green);color:var(--green)}
+.dp-btn-start:hover{background:rgba(62,207,142,.1)}
+.dp-btn-stop{background:transparent;border-color:var(--red);color:var(--red)}
+.dp-btn-stop:hover{background:rgba(242,102,106,.1)}
+.dp-btn-pause{background:transparent;border-color:var(--purple);color:var(--purple)}
+.dp-btn-pause:hover{background:rgba(155,127,232,.1)}
+.dp-calib-bar{height:6px;border-radius:3px;background:var(--bg4);overflow:hidden;margin-top:2px}
+.dp-calib-fill{height:100%;border-radius:3px;background:var(--yellow);width:0%;transition:width .9s linear}
+.dp-timer{font-family:var(--mono);font-size:.7rem;color:var(--text3);text-align:center}
+
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">ESP32 v2</div>
+    <div class="name">BioMonitor</div>
+  </div>
+  <div class="nav-list">
+    <button class="nav-item active" data-page="stress" data-zh="壓力監測" data-en="Live Monitor">壓力監測</button>
+    <button class="nav-item" data-page="analysis" data-zh="數據中心" data-en="Data Center">數據中心</button>
+    <button class="nav-item" data-page="manual" data-zh="實驗手冊" data-en="Manual">實驗手冊</button>
+    <button class="nav-item" data-page="settings" data-zh="參數設定" data-en="Settings">參數設定</button>
+  </div>
+  <div style="padding:8px 8px 0">
+    <button class="btn" id="btnLang" style="width:100%;font-family:var(--mono);font-size:.72rem;letter-spacing:1px">🌐 EN</button>
+  </div>
+  <div class="sidebar-footer">
+    <div class="ble-row" style="margin-bottom:6px">
+      <div class="ble-dot" id="bleDot"></div>
+      <span id="bleText">BLE 未連線</span>
+    </div>
+    <div class="ble-row">
+      <div class="ble-dot" id="usbDot"></div>
+      <span id="usbText">USB 未連線</span>
+    </div>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+<!-- ==================== 壓力監測 ==================== -->
+<div id="page-stress" class="page active">
+  <div class="page-header">
+    <span class="page-title">壓力監測 / Live</span>
+    <div class="page-actions">
+      <span class="phase-badge ph-idle" id="phaseBadge">IDLE</span>
+      <button class="btn" id="btnBle">BLE 連線</button>
+      <button class="btn" id="btnUsb">USB 連線</button>
+      <button class="btn" id="btnDemo" style="border-color:var(--purple);color:var(--purple)">Demo</button>
+      <button class="btn hidden" id="btnCtrl" style="border-color:var(--green);color:var(--green)">🎛 網頁控制</button>
+      <button class="btn" id="btnCam" style="border-color:var(--red);color:var(--red)" title="開啟鏡頭錄製">📷 鏡頭</button>
+      <div id="camIndicator" class="cam-off"><div class="cam-dot"></div><span id="camText">未錄製</span></div>
+      <button class="btn btn-danger hidden" id="btnStop">停止並分析</button>
+      <button class="btn hidden" id="btnPause">暫停接收</button>
+      <button class="btn hidden" id="btnStartMeasure" style="border-color:var(--green);color:var(--green)">▶ 開始量測</button>
+      <button class="btn" id="btnExportCsv">匯出 CSV</button>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <!-- ESP32 Status Banner -->
+    <div id="statusBanner" style="background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="statusDot" style="width:10px;height:10px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:.4s"></div>
+        <div>
+          <div id="statusMainText" style="font-family:var(--mono);font-size:.9rem;font-weight:600;color:var(--text)">閒置中 — 等待 ESP32 按鈕操作</div>
+          <div id="statusSubText" style="font-family:var(--mono);font-size:.68rem;color:var(--text3);margin-top:2px">請先連接 BLE 或 USB，然後按 ESP32 上的 BTN2 開始</div>
+        </div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:14px;font-family:var(--mono);font-size:.72rem;color:var(--text3);flex-wrap:wrap" id="statusBtnHints">
+        <span>BTN1 = 開機/校正/暫停</span>
+        <span>BTN2 = 開始量測/停止</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="timer-row">
+        <div class="timer-block">
+          <div class="timer-label">elapsed</div>
+          <div class="timer-value" id="mainTimer">00:00</div>
+        </div>
+        <div class="timer-sep"></div>
+        <div class="timer-block">
+          <div class="timer-label">phase</div>
+          <div id="phaseText" style="font-size:.84rem;color:var(--text2)">等待校正...</div>
+        </div>
+        <div class="timer-sep"></div>
+        <div class="timer-block">
+          <div class="timer-label">data points</div>
+          <div class="timer-value" id="dataCount" style="font-size:1.4rem">0</div>
+        </div>
+        <div class="timer-sep"></div>
+        <div class="timer-block">
+          <div class="timer-label">sample rate</div>
+          <div style="font-family:var(--mono);font-size:.88rem;color:var(--text2)" id="srDisplay">-- Hz</div>
+        </div>
+        <div class="timer-sep"></div>
+        <div class="timer-block">
+          <div class="timer-label">calib time</div>
+          <div style="font-family:var(--mono);font-size:.88rem;color:var(--text2)" id="calibTime">--s</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overview chart -->
+    <div class="card">
+      <div class="chart-section">
+        <div class="chart-header">
+          <span class="chart-title">綜合原始數據</span>
+          <div class="legend">
+            <div class="leg"><div class="leg-dot" style="background:var(--hr)"></div>HR</div>
+            <div class="leg"><div class="leg-dot" style="background:var(--gsr)"></div>GSR</div>
+            <div class="leg"><div class="leg-dot" style="background:var(--rr)"></div>Resp</div>
+            <div class="leg"><div class="leg-dot" style="background:rgba(242,102,106,.25);border:1px solid var(--hr)"></div>校正區間</div>
+          </div>
+        </div>
+        <div class="chart-wrap h200"><canvas id="cOverview"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Stress gauge -->
+    <div class="card">
+      <div class="gauge-wrap">
+        <div class="chart-title" style="margin-bottom:10px">當前緊張指數（由 ESP32 計算）</div>
+        <div class="gauge-top">
+          <div>
+            <div class="gauge-score" id="stressScore">--</div>
+            <div class="gauge-level" id="stressLevel">--</div>
+          </div>
+          <div class="gauge-detail">
+            <div class="gauge-track">
+              <div class="gauge-fill" id="gaugeFill" style="width:0%"></div>
+              <div class="gauge-needle" id="gaugeNeedle" style="left:0%"></div>
+            </div>
+            <div class="gauge-ticks"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
+            <div class="gauge-formula">Score = S_HR×<span id="fw_hr">0.40</span> + S_GSR×<span id="fw_gsr">0.20</span> + S_RR×<span id="fw_resp">0.40</span>（由 ESP32 計算後回傳）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Three metric cards -->
+    <div class="metrics-row">
+
+      <!-- HR -->
+      <div class="metric-card">
+        <div class="metric-head">
+          <span class="metric-name" style="color:var(--hr)">Heart Rate</span>
+          <span class="metric-unit">BPM</span>
+        </div>
+        <div class="metric-body">
+          <div class="val-pair">
+            <div class="vg">
+              <div class="vl">current BPM</div>
+              <div class="vn" style="color:var(--hr)" id="curHR">--</div>
+              <div class="vr">raw: <span id="curRawHR">--</span></div>
+            </div>
+            <div class="vg">
+              <div class="vl">baseline avg</div>
+              <div class="vn" id="baseHR">--</div>
+              <div class="vr">raw: <span id="baseRawHR">--</span></div>
+            </div>
+          </div>
+          <div class="chart-wrap h120"><canvas id="cLiveHR"></canvas></div>
+          <table class="st">
+            <thead><tr><th>基準值</th><th>當前均值</th><th>最大</th><th>最小</th><th>點數</th><th>波峰</th></tr></thead>
+            <tbody><tr>
+              <td id="s_hr_base">--</td><td class="hl" id="s_hr_avg">--</td>
+              <td id="s_hr_max">--</td><td id="s_hr_min">--</td>
+              <td id="s_hr_cnt">--</td><td id="s_hr_pk">--</td>
+            </tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- GSR -->
+      <div class="metric-card">
+        <div class="metric-head">
+          <span class="metric-name" style="color:var(--gsr)">GSR</span>
+          <span class="metric-unit">raw ADC</span>
+        </div>
+        <div class="metric-body">
+          <div class="val-pair">
+            <div class="vg">
+              <div class="vl">current</div>
+              <div class="vn" style="color:var(--gsr)" id="curGSR">--</div>
+              <div class="vr">change: <span id="gsrChange">--</span></div>
+            </div>
+            <div class="vg">
+              <div class="vl">baseline</div>
+              <div class="vn" id="baseGSR">--</div>
+              <div class="vr">threshold +15%</div>
+            </div>
+          </div>
+          <div class="chart-wrap h120"><canvas id="cLiveGSR"></canvas></div>
+          <div class="gsr-alert" id="gsrAlert"></div>
+          <table class="st">
+            <thead><tr><th>基準值</th><th>當前均值</th><th>最大</th><th>最小</th><th>點數</th><th>觸發</th></tr></thead>
+            <tbody><tr>
+              <td id="s_gsr_base">--</td><td class="hl" id="s_gsr_avg">--</td>
+              <td id="s_gsr_max">--</td><td id="s_gsr_min">--</td>
+              <td id="s_gsr_cnt">--</td><td id="s_gsr_trig">0</td>
+            </tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Resp -->
+      <div class="metric-card">
+        <div class="metric-head">
+          <span class="metric-name" style="color:var(--rr)">Respiration</span>
+          <span class="metric-unit">RPM</span>
+        </div>
+        <div class="metric-body">
+          <div class="val-pair">
+            <div class="vg">
+              <div class="vl">current RPM</div>
+              <div class="vn" style="color:var(--rr)" id="curRR">--</div>
+              <div class="vr">raw: <span id="curRawRR">--</span></div>
+            </div>
+            <div class="vg">
+              <div class="vl">baseline avg</div>
+              <div class="vn" id="baseRR">--</div>
+              <div class="vr">raw: <span id="baseRawRR">--</span></div>
+            </div>
+          </div>
+          <div class="chart-wrap h120"><canvas id="cLiveRR"></canvas></div>
+          <table class="st">
+            <thead><tr><th>基準值</th><th>當前均值</th><th>最大</th><th>最小</th><th>點數</th><th>波峰</th></tr></thead>
+            <tbody><tr>
+              <td id="s_rr_base">--</td><td class="hl" id="s_rr_avg">--</td>
+              <td id="s_rr_max">--</td><td id="s_rr_min">--</td>
+              <td id="s_rr_cnt">--</td><td id="s_rr_pk">--</td>
+            </tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Raw log -->
+    <div class="card">
+      <div class="metric-head" style="padding:9px 15px">
+        <span class="metric-name">原始數據紀錄</span>
+        <span id="logCount" style="font-family:var(--mono);font-size:.68rem;color:var(--text3)">0 rows</span>
+      </div>
+      <div class="log-wrap">
+        <table class="lt">
+          <thead><tr>
+            <th>Time (s)</th><th>GSR raw</th><th>HR raw</th><th>Resp raw</th><th>BPM</th><th>RPM</th><th>Score</th>
+          </tr></thead>
+          <tbody id="liveLogBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== 數據中心 ==================== -->
+<div id="page-analysis" class="page">
+  <div class="page-header">
+    <span class="page-title">數據中心 / Analysis</span>
+    <div class="page-actions">
+      <button class="btn btn-primary" id="btnImportCsv">📂 匯入 CSV</button>
+      <button class="btn" id="btnExportAnalysisCsv">💾 匯出 CSV</button>
+      <input type="file" id="fileInputCsv" accept=".csv" style="display:none">
+      <span id="anaFileName" style="font-family:var(--mono);font-size:.7rem;color:var(--text3)"></span>
+    </div>
+  </div>
+
+  <div class="sub-tabs">
+    <button class="sub-tab active" data-subtab="summary">概覽</button>
+    <button class="sub-tab" data-subtab="advanced">進階分析</button>
+    <button class="sub-tab" data-subtab="compare">數據比較</button>
+    <button class="sub-tab" data-subtab="report">📄 報告</button>
+  </div>
+
+  <div class="page-body">
+
+    <!-- Summary -->
+    <div id="subtab-summary" class="sub-page active">
+      <div id="anaEmpty" style="padding:36px;text-align:center;color:var(--text3);font-size:.84rem">
+        尚無數據。請先進行測量，或從上方匯入 CSV 檔案。
+      </div>
+      <div id="anaContent" class="hidden">
+
+        <!-- 基準值 -->
+        <div class="card" style="margin-bottom:13px">
+          <div class="chart-section">
+            <div class="chart-header">
+              <span class="chart-title">靜息基準值（由 ESP32 校正後傳送）</span>
+            </div>
+            <div id="anaBaselineInfo" style="display:flex;gap:20px;padding:4px 0;font-family:var(--mono);font-size:.76rem;flex-wrap:wrap">
+              <span style="color:var(--text3)">尚無基準值</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ★ 全程緊張指數（最重要的圖，放最上面） -->
+        <div class="card" style="margin-bottom:13px;border-color:rgba(155,127,232,.4)">
+          <div class="chart-section">
+            <div class="chart-header">
+              <div>
+                <span class="chart-title" style="color:var(--purple)">全程緊張指數 / Full-Session Stress Index</span>
+                <div style="font-family:var(--mono);font-size:.63rem;color:var(--text3);margin-top:3px">
+                  來源：ESP32 即時計算值 | 紅虛線 = 緊張閾值 60
+                </div>
+              </div>
+              <div id="anaStressStats" style="font-family:var(--mono);font-size:.7rem;color:var(--text3);text-align:right"></div>
+            </div>
+            <!-- 色帶說明 -->
+            <div style="display:flex;gap:14px;margin-bottom:8px;flex-wrap:wrap">
+              <span style="font-family:var(--mono);font-size:.62rem;color:#3ecf8e">■ 0–30 放鬆</span>
+              <span style="font-family:var(--mono);font-size:.62rem;color:#f0b429">■ 30–60 輕度</span>
+              <span style="font-family:var(--mono);font-size:.62rem;color:#f2666a">■ 60–80 中度緊張</span>
+              <span style="font-family:var(--mono);font-size:.62rem;color:#c0392b">■ 80+ 高度緊張</span>
+            </div>
+            <div class="chart-wrap h200"><canvas id="cAnaStressFull"></canvas></div>
+          </div>
+        </div>
+
+        <!-- 三訊號 -->
+        <div class="card" style="margin-bottom:13px">
+          <div class="chart-section">
+            <div class="chart-header"><span class="chart-title">心率 HR raw（完整紀錄）</span></div>
+            <div class="chart-wrap h150"><canvas id="cAnaHR"></canvas></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:13px">
+          <div class="chart-section">
+            <div class="chart-header"><span class="chart-title">膚電 GSR raw（完整紀錄）</span></div>
+            <div class="chart-wrap h150"><canvas id="cAnaGSR"></canvas></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:13px">
+          <div class="chart-section">
+            <div class="chart-header"><span class="chart-title">呼吸 Resp raw（完整紀錄）</span></div>
+            <div class="chart-wrap h150"><canvas id="cAnaRR"></canvas></div>
+          </div>
+        </div>
+
+        <!-- 異常偵測 -->
+        <div class="card" style="padding:15px">
+          <div class="metric-name" style="margin-bottom:11px">異常區間偵測</div>
+          <div id="anomalyList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div id="subtab-advanced" class="sub-page">
+      <div class="card" style="margin-bottom:13px">
+        <div class="tool-row">
+          <span class="tool-label">基準線範圍</span>
+          <input type="number" class="t-input" id="adv_cs" value="0"> s
+          <span style="color:var(--text3);font-size:.8rem">—</span>
+          <input type="number" class="t-input" id="adv_ce" value="10"> s
+          <button class="btn btn-primary" id="btnRecalc">重新計算</button>
+        </div>
+        <div class="tool-row">
+          <span class="tool-label">HR 權重</span>
+          <input type="range" class="r-input" id="adv_whr" min="0" max="1" step=".05" value=".4">
+          <span class="r-val" id="adv_whr_v">0.40</span>
+          <span class="tool-label" style="margin-left:10px">GSR 權重</span>
+          <input type="range" class="r-input" id="adv_wgsr" min="0" max="1" step=".05" value=".2">
+          <span class="r-val" id="adv_wgsr_v">0.20</span>
+          <span class="tool-label" style="margin-left:10px">RR 權重</span>
+          <input type="range" class="r-input" id="adv_wrr" min="0" max="1" step=".05" value=".4">
+          <span class="r-val" id="adv_wrr_v">0.40</span>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:13px">
+        <div class="chart-section">
+          <div class="chart-header">
+            <span class="chart-title">進階圖表</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn" id="btnAddLine" style="padding:3px 8px;font-size:.68rem">+ 輔助線</button>
+              <button class="btn" id="btnZoomIn" style="padding:3px 8px;font-size:.68rem">放大</button>
+              <button class="btn" id="btnZoomOut" style="padding:3px 8px;font-size:.68rem">縮小</button>
+              <button class="btn" id="btnZoomReset" style="padding:3px 8px;font-size:.68rem">重置</button>
+            </div>
+          </div>
+          <div class="chart-wrap h200"><canvas id="cAdvanced"></canvas></div>
+        </div>
+      </div>
+      <div class="card" style="padding:15px">
+        <div class="metric-name" style="margin-bottom:11px">統計摘要</div>
+        <table class="st" id="advStatsTable">
+          <thead><tr><th>指標</th><th>基準值</th><th>均值</th><th>最大</th><th>最小</th><th>標準差</th><th>波峰數</th><th>BPM/RPM</th></tr></thead>
+          <tbody id="advStatsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Compare -->
+    <div id="subtab-compare" class="sub-page">
+      <div class="card" style="padding:14px 16px;margin-bottom:13px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <span class="metric-name">數據比較 — 可匯入多筆 CSV</span>
+          <div style="display:flex;gap:7px">
+            <button class="btn btn-primary" id="btnAddCompare">+ 新增 CSV</button>
+            <button class="btn btn-danger" id="btnClearCompare">清除全部</button>
+          </div>
+        </div>
+        <div id="compareFileList" style="font-family:var(--mono);font-size:.72rem;color:var(--text3);margin-bottom:10px;min-height:18px"></div>
+        <!-- Auxiliary line controls -->
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font-family:var(--mono);font-size:.68rem;color:var(--text3)">輔助線 @t(s):</span>
+          <input type="number" id="cmpAuxT" class="t-input" placeholder="秒" style="width:64px">
+          <select id="cmpAuxTarget" style="background:var(--bg3);border:1px solid var(--line);color:var(--text);font-family:var(--mono);font-size:.72rem;padding:5px 8px;border-radius:4px">
+            <option value="score">壓力指數</option>
+            <option value="hr">HR</option>
+            <option value="gsr">GSR</option>
+            <option value="resp">Resp</option>
+          </select>
+          <button class="btn" id="btnCmpAddLine" style="font-size:.72rem;padding:4px 9px">+ 加線</button>
+          <button class="btn btn-danger" id="btnCmpClearLines" style="font-size:.72rem;padding:4px 9px">清輔助線</button>
+        </div>
+      </div>
+
+      <!-- Stats table -->
+      <div class="card" style="padding:14px 16px;margin-bottom:13px" id="cmpStatsCard">
+        <div class="metric-name" style="margin-bottom:10px">統計摘要比較</div>
+        <div style="overflow-x:auto">
+          <table class="st" id="cmpStatsTable" style="min-width:560px">
+            <thead><tr>
+              <th>檔案</th><th>時長(s)</th>
+              <th style="color:var(--purple)">Score均值</th><th style="color:var(--purple)">Score最大</th><th style="color:var(--purple)">事件(≥60)</th>
+              <th style="color:var(--hr)">HR均值</th><th style="color:var(--gsr)">GSR均值</th><th style="color:var(--rr)">Resp均值</th>
+            </tr></thead>
+            <tbody id="cmpStatsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Score chart -->
+      <div class="card" style="margin-bottom:13px">
+        <div class="chart-section">
+          <div class="chart-header">
+            <span class="chart-title">壓力指數比較</span>
+            <div id="cmpScoreLegend" class="legend"></div>
+          </div>
+          <div class="chart-wrap h200"><canvas id="cCompareScore"></canvas></div>
+        </div>
+      </div>
+      <!-- HR chart -->
+      <div class="card" style="margin-bottom:13px">
+        <div class="chart-section">
+          <div class="chart-header"><span class="chart-title">HR raw 比較</span></div>
+          <div class="chart-wrap h150"><canvas id="cCompareHR"></canvas></div>
+        </div>
+      </div>
+      <!-- GSR chart -->
+      <div class="card" style="margin-bottom:13px">
+        <div class="chart-section">
+          <div class="chart-header"><span class="chart-title">GSR raw 比較</span></div>
+          <div class="chart-wrap h150"><canvas id="cCompareGSR"></canvas></div>
+        </div>
+      </div>
+      <!-- Resp chart -->
+      <div class="card" style="margin-bottom:13px">
+        <div class="chart-section">
+          <div class="chart-header"><span class="chart-title">Resp raw 比較</span></div>
+          <div class="chart-wrap h150"><canvas id="cCompareResp"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Report -->
+    <div id="subtab-report" class="sub-page">
+      <div style="padding:12px 16px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--line);background:var(--bg2)">
+        <button class="btn btn-primary" id="btnPrintReport">🖨 列印 / 儲存 PDF</button>
+        <span style="font-family:var(--mono);font-size:.7rem;color:var(--text3)">使用瀏覽器「另存為 PDF」匯出 A4 報告</span>
+      </div>
+      <div style="padding:20px;background:var(--bg);min-height:100%;overflow-x:auto">
+        <!-- A4 report area -->
+        <div id="reportPage" style="width:794px;min-height:1123px;background:#fff;color:#111;margin:0 auto;padding:44px 50px;font-family:'IBM Plex Sans',sans-serif;box-shadow:0 4px 40px rgba(0,0,0,.4);border-radius:4px">
+
+          <!-- Header -->
+          <div style="border-bottom:3px solid #1a1a2e;padding-bottom:14px;margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end">
+              <div>
+                <div style="font-size:.6rem;letter-spacing:3px;text-transform:uppercase;color:#888;font-family:'IBM Plex Mono',monospace;margin-bottom:3px">ESP32 BioMonitor — Analysis Report</div>
+                <div style="font-size:1.5rem;font-weight:700;color:#1a1a2e">生理訊號壓力監測報告</div>
+              </div>
+              <div style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:.66rem;color:#888;line-height:1.7">
+                <div id="rpt_date"></div>
+                <div id="rpt_duration"></div>
+                <div id="rpt_pts"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Baseline + 統計 並排 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
+            <div>
+              <div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:#888;font-family:'IBM Plex Mono',monospace;margin-bottom:7px;border-bottom:1px solid #eee;padding-bottom:3px">靜息基準值 / Baseline</div>
+              <div id="rpt_baseline" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+            </div>
+            <div>
+              <div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:#888;font-family:'IBM Plex Mono',monospace;margin-bottom:7px;border-bottom:1px solid #eee;padding-bottom:3px">緊張指數統計 / Stress Statistics</div>
+              <div id="rpt_stressStats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px"></div>
+            </div>
+          </div>
+
+          <!-- 計算公式 -->
+          <div style="margin-bottom:14px;background:#f8f9ff;border:1px solid #e0e4f0;border-radius:4px;padding:7px 12px;font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:#333">
+            <span style="color:#999;margin-right:8px">公式:</span>
+            <span id="rpt_formula"></span>
+          </div>
+
+          <!-- ★ 全程緊張指數走勢（大圖，這是報告重點） -->
+          <div style="margin-bottom:16px;border:1px solid #e8e8e8;border-radius:4px;padding:12px">
+            <div style="font-size:.62rem;letter-spacing:2px;text-transform:uppercase;color:#555;font-family:'IBM Plex Mono',monospace;margin-bottom:3px">
+              全程緊張指數走勢 / Full-session Stress Index Timeline
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:.62rem;color:#aaa;margin-bottom:8px">
+              紅色虛線 = 緊張閾值 60 | 橘色區塊 = 偵測到緊張事件
+            </div>
+            <div style="height:180px;position:relative"><canvas id="cRptStress"></canvas></div>
+            <!-- 緊張等級色帶說明 -->
+            <div style="display:flex;gap:16px;margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:.6rem;color:#888">
+              <span><span style="color:#3ecf8e">■</span> 0–30 放鬆</span>
+              <span><span style="color:#f0b429">■</span> 30–60 輕度緊張</span>
+              <span><span style="color:#f2666a">■</span> 60–80 中度緊張</span>
+              <span><span style="color:#c0392b">■</span> 80–100 高度緊張</span>
+            </div>
+          </div>
+
+          <!-- 三訊號並排 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+            <div style="border:1px solid #eee;border-radius:4px;padding:10px">
+              <div style="font-size:.56rem;letter-spacing:1px;text-transform:uppercase;color:#aaa;font-family:'IBM Plex Mono',monospace;margin-bottom:6px">心率 HR raw</div>
+              <div style="height:100px;position:relative"><canvas id="cRptHR"></canvas></div>
+            </div>
+            <div style="border:1px solid #eee;border-radius:4px;padding:10px">
+              <div style="font-size:.56rem;letter-spacing:1px;text-transform:uppercase;color:#aaa;font-family:'IBM Plex Mono',monospace;margin-bottom:6px">膚電 GSR raw</div>
+              <div style="height:100px;position:relative"><canvas id="cRptGSR"></canvas></div>
+            </div>
+            <div style="border:1px solid #eee;border-radius:4px;padding:10px">
+              <div style="font-size:.56rem;letter-spacing:1px;text-transform:uppercase;color:#aaa;font-family:'IBM Plex Mono',monospace;margin-bottom:6px">呼吸 Resp raw</div>
+              <div style="height:100px;position:relative"><canvas id="cRptResp"></canvas></div>
+            </div>
+          </div>
+
+          <!-- 緊張事件表格 -->
+          <div style="margin-bottom:20px">
+            <div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:#888;font-family:'IBM Plex Mono',monospace;margin-bottom:7px;border-bottom:1px solid #eee;padding-bottom:3px">
+              緊張事件偵測 / Stress Events (Score ≥ 60)
+            </div>
+            <div id="rpt_events"></div>
+          </div>
+
+          <!-- Footer -->
+          <div style="border-top:1px solid #eee;padding-top:10px;font-family:'IBM Plex Mono',monospace;font-size:.58rem;color:#ccc;display:flex;justify-content:space-between">
+            <span>ESP32 BioMonitor — Auto-generated Report</span>
+            <span id="rpt_footer_date"></span>
+          </div>
+
+        </div><!-- reportPage -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== 實驗手冊 ==================== -->
+<div id="page-manual" class="page">
+  <div class="page-header"><span class="page-title">實驗手冊 / Manual</span></div>
+  <div class="page-body">
+    <div class="manual-body" style="max-width:100%">
+
+      <div style="margin-bottom:24px">
+        <div class="manual-h1">實驗範本（可複製）</div>
+        <div style="position:relative">
+          <div class="copy-box" id="tpl1">【實驗標題】ESP32 生理訊號壓力監測實驗
+
+【副標題】以 BLE 無線傳輸進行壓力指數即時監測
+
+【實驗目的】
+本實驗透過 ESP32 微控制器讀取心率（HR）、膚電（GSR）及呼吸（Resp）三項生理訊號，以波峰偵測演算法即時計算心率（BPM）與呼吸率（RPM），並依據個人基準線動態計算壓力指數（0–100 分）。
+
+【實驗器材】
+- ESP32-WROOM 開發板 × 1
+- 心率感測模組（PPG 光電容積描記）× 1
+- 膚電感測模組（GSR）× 1
+- 呼吸感測模組（導電橡皮筋應變規）× 1
+- LCD I2C 1602 顯示模組 × 1
+- 輕觸按鈕 × 2，LED × 1
+
+【實驗步驟】
+1. 確認裝置通電，LCD 顯示 Waiting...
+2. 點擊網頁「BLE 連線」，配對 ESP32_Biometric_System。
+3. 點擊「校正」，靜息狀態等待校正秒數（預設 10 秒）完成基準線採集。
+   ESP32 自動計算 baseGSR、baseHR、baseResp 並回傳前端。
+4. 校正完成後自動進入量測，或手動點擊「開始測量」。
+5. 進行實驗刺激（如閱讀複雜題目、認知負荷任務）。
+6. 完成後點擊「停止並分析」，系統自動切換至數據中心頁面。
+7. 確認異常區間偵測結果，匯出 CSV 留存。
+
+【注意事項】
+- 校正期間受試者需保持靜息狀態，避免說話或移動。
+- GSR 為反向指標，導電性上升（緊張）時 ADC 數值下降。
+- 壓力分數由 ESP32 即時計算後回傳，確保基準線精確性。
+- 若中途需暫停，可按 Button 1 或網頁「暫停接收」按鈕。</div>
+          <button class="copy-btn" onclick="doCopy('tpl1',this)">複製</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:24px">
+        <div class="manual-h1">演算法說明</div>
+        <div class="manual-h2">1. 基準線採集</div>
+        <div class="manual-p">校正階段每秒讀取一次 ADC 原始值，累加後平均，存為基準值。</div>
+        <div class="manual-formula">baseGSR  = sum(gsrRaw[0..N-1]) / N
+baseHR   = sum(hrRaw[0..N-1])  / N
+baseResp = sum(respRaw[0..N-1])/ N</div>
+
+        <div class="manual-h2">2. 波峰偵測（上升沿觸發）</div>
+        <div class="manual-p">動態閾值 = 基準值 + 偏移量。訊號由低於閾值上升至超過閾值時記錄一次波峰，計算兩波峰間隔換算頻率。</div>
+        <div class="manual-formula">BPM = 60000 / interval_ms   (合理範圍 300–2000 ms)
+RPM = 60000 / interval_ms   (合理範圍 1500–10000 ms)</div>
+
+        <div class="manual-h2">3. 壓力得分</div>
+        <div class="manual-formula">S_GSR  = constrain((baseGSR - gsrRaw) / baseGSR / 0.15 * 100, 0, 100)
+S_HR   = constrain((BPM - restHR)  / (maxHR - restHR)   * 100, 0, 100)
+S_Resp = constrain((RPM - calmResp)/ (stressResp - calmResp) * 100, 0, 100)
+Score  = S_HR*w_hr + S_GSR*w_gsr + S_Resp*w_resp</div>
+
+        <div class="manual-h2">4. 操作流程</div>
+        <table class="manual-table">
+          <thead><tr><th>步驟</th><th>觸發</th><th>系統行為</th></tr></thead>
+          <tbody>
+            <tr><td>1. 待機</td><td>通電</td><td>LCD: Waiting...，等待 BTN2 或 BLE CALIB</td></tr>
+            <tr><td>2. 校正</td><td>BTN2 / BLE CALIB</td><td>採集 N 秒基準線，完成後回傳 BASELINE 封包</td></tr>
+            <tr><td>3. 量測</td><td>自動 / BLE START</td><td>每秒發送 DATA 封包，波峰偵測持續執行</td></tr>
+            <tr><td>4. 暫停</td><td>BTN1 / BLE PAUSE</td><td>停止 BLE 發送，背景波峰偵測繼續</td></tr>
+            <tr><td>5. 停止</td><td>BTN2 / BLE STOP</td><td>發送 END 封包，前端自動跳轉數據中心</td></tr>
+          </tbody>
+        </table>
+
+        <div class="manual-h2">5. BLE 封包格式</div>
+        <div class="manual-formula">DATA,&lt;sec&gt;,&lt;gsrRaw&gt;,&lt;hrRaw&gt;,&lt;respRaw&gt;,&lt;BPM&gt;,&lt;RPM&gt;,&lt;Score&gt;
+BASELINE,&lt;baseGSR&gt;,&lt;baseHR&gt;,&lt;baseResp&gt;
+STATUS,&lt;CALIBRATING|RUNNING|PAUSED|STOPPED&gt;
+END</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 參數設定 ==================== -->
+<div id="page-settings" class="page">
+  <div class="page-header">
+    <span class="page-title">參數設定 / Settings</span>
+    <div class="page-actions">
+      <button class="btn btn-success" id="btnSave">儲存並同步 ESP32</button>
+    </div>
+  </div>
+  <div class="page-body">
+    <div class="settings-body" style="max-width:100%">
+
+      <div class="settings-section">
+        <div class="settings-h">壓力指數權重（自動正規化為總和 1.00）</div>
+
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">HR 權重</div><div class="setting-desc">心率佔壓力指數比例</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_w_hr" min="0" max="1" step=".05" value=".4">
+            <input type="number" class="s-input" id="cfg_w_hr" value="0.4" step=".05" min="0" max="1" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">GSR 權重</div><div class="setting-desc">膚電佔壓力指數比例</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_w_gsr" min="0" max="1" step=".05" value=".2">
+            <input type="number" class="s-input" id="cfg_w_gsr" value="0.2" step=".05" min="0" max="1" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">Resp 權重</div><div class="setting-desc">呼吸佔壓力指數比例</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_w_resp" min="0" max="1" step=".05" value=".4">
+            <input type="number" class="s-input" id="cfg_w_resp" value="0.4" step=".05" min="0" max="1" style="width:70px">
+          </div>
+        </div>
+        <div class="weight-total wt-ok" id="weightTotal">總和：1.00 ✓</div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-h">心率參數</div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">靜息心率 (BPM)</div><div class="setting-desc">S_HR 計算下限（得分 0）</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_rest_hr" min="40" max="100" step="1" value="70">
+            <input type="number" class="s-input" id="cfg_rest_hr" value="70" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">最大心率 (BPM)</div><div class="setting-desc">S_HR 計算上限（得分 100）</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_max_hr" min="100" max="200" step="1" value="120">
+            <input type="number" class="s-input" id="cfg_max_hr" value="120" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">HR 波峰偏移量</div><div class="setting-desc">基準值 + 此偏移 = 偵測閾值</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_hr_thresh" min="50" max="2000" step="50" value="500">
+            <input type="number" class="s-input" id="cfg_hr_thresh" value="500" style="width:70px">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-h">呼吸參數</div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">平靜呼吸率 (RPM)</div><div class="setting-desc">S_Resp 計算下限（得分 0）</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_calm_resp" min="4" max="20" step="1" value="12">
+            <input type="number" class="s-input" id="cfg_calm_resp" value="12" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">緊張呼吸率 (RPM)</div><div class="setting-desc">S_Resp 計算上限（得分 100）</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_stress_resp" min="16" max="50" step="1" value="24">
+            <input type="number" class="s-input" id="cfg_stress_resp" value="24" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">Resp 波峰偏移量</div><div class="setting-desc">基準值 + 此偏移 = 偵測閾值</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_resp_thresh" min="10" max="1000" step="10" value="200">
+            <input type="number" class="s-input" id="cfg_resp_thresh" value="200" style="width:70px">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-h">GSR 參數</div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">GSR 緊張閾值 (%)</div><div class="setting-desc">相對基準下降此百分比 → 觸發警示（S_GSR = 100）</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_gsr_thresh" min="5" max="50" step="1" value="15">
+            <input type="number" class="s-input" id="cfg_gsr_thresh" value="15" style="width:70px">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-h">系統參數</div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div><div class="setting-label">校正時間 (秒)</div><div class="setting-desc">基準線採集持續時間（在 ESP32 按 BTN2 開始）</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_calib" min="5" max="120" step="5" value="60">
+            <input type="number" class="s-input" id="cfg_calib" value="60" style="width:70px">
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="setting-label">ESP32 回傳速率 (Hz)</div>
+            <div class="setting-desc">每秒送出幾筆 DATA，最高 50Hz（BLE 實測穩定約 20Hz）</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_data_rate" min="1" max="50" step="1" value="20">
+            <input type="number" class="s-input" id="cfg_data_rate" value="20" style="width:70px">
+            <span style="font-family:var(--mono);font-size:.72rem;color:var(--text3)" id="data_rate_ms">= 50ms/筆</span>
+          </div>
+        </div>
+        <div class="setting-row" style="flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="setting-label">網頁圖表取樣 (Hz)</div>
+            <div class="setting-desc">前端繪圖最多保留的每秒點數，超過自動降採樣（節省記憶體）</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" class="r-input" id="sl_chart_rate" min="1" max="50" step="1" value="10">
+            <input type="number" class="s-input" id="cfg_chart_rate" value="10" style="width:70px">
+            <span style="font-family:var(--mono);font-size:.72rem;color:var(--text3)">Hz</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-h">緊張判定閾值預覽</div>
+        <div style="background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:12px 16px;font-family:var(--mono);font-size:.75rem;color:var(--text2);line-height:1.9">
+          <div>S_GSR = 100 當 GSR 下降 <span id="prev_gsr_thresh" style="color:var(--gsr)">15</span>% 以上</div>
+          <div>S_HR  = 100 當 BPM 達到 <span id="prev_max_hr" style="color:var(--hr)">120</span> bpm</div>
+          <div>S_HR  = 0   當 BPM 低於 <span id="prev_rest_hr" style="color:var(--hr)">70</span> bpm</div>
+          <div>S_Resp= 100 當 RPM 達到 <span id="prev_stress_resp" style="color:var(--rr)">24</span> rpm</div>
+          <div style="margin-top:6px;color:var(--accent)">緊張指數 Score = S_HR×<span id="prev_whr">0.40</span> + S_GSR×<span id="prev_wgsr">0.20</span> + S_Resp×<span id="prev_wrr">0.40</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</div><!-- .main -->
+
+<!-- BLE Modal -->
+<div class="modal-overlay" id="bleModal">
+  <div class="modal-box">
+    <div class="modal-title">BLE 連線</div>
+    <div class="modal-sub">點擊「掃描裝置」後，從清單選取 ESP32_Biometric_System。</div>
+    <div class="modal-status" id="bleModalStatus">等待操作...</div>
+    <div class="modal-actions">
+      <button class="btn" id="btnBleCancel">取消</button>
+      <button class="btn btn-primary" id="btnBleScan">掃描裝置</button>
+    </div>
+  </div>
+</div>
+
+<!-- Video Playback Modal -->
+<div id="playbackModal">
+  <div id="playbackBox">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:var(--mono);font-weight:700;font-size:.88rem;color:var(--text)">🎬 鏡頭回放</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" id="btnExportVideo" style="border-color:var(--green);color:var(--green);font-size:.72rem">⬇ 匯出影片</button>
+        <button id="btnPlaybackClose" style="background:none;border:none;color:var(--text3);font-size:1.1rem;cursor:pointer;padding:0 4px">✕</button>
+      </div>
+    </div>
+    <video id="playbackVideo" controls></video>
+    <div style="font-family:var(--mono);font-size:.68rem;color:var(--text3);margin-bottom:2px">緊張事件時間軸（點擊跳轉）</div>
+    <div class="pb-timeline" id="pbTimeline">
+      <div class="pb-tl-bar" id="pbTlBar"></div>
+    </div>
+    <div id="pbEventList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+    <div id="pbSliceBar" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"></div>
+    <div style="font-family:var(--mono);font-size:.62rem;color:var(--text3);margin-top:4px" id="pbInfo">--</div>
+  </div>
+</div>
+
+<!-- Demo Float Panel -->
+<!-- ==================== 網頁控制面板 ==================== -->
+<div id="ctrlPanel" class="hidden">
+  <div id="ctrlPanelHead">
+    <span class="cp-title">🎛 網頁控制</span>
+    <button id="ctrlPanelClose">✕</button>
+  </div>
+  <div id="ctrlPanelBody">
+    <!-- Authority toggle -->
+    <div style="font-size:.62rem;color:var(--text3);margin-bottom:2px">主控權</div>
+    <div class="cp-authority">
+      <div class="cp-auth-btn active" id="cpAuthEsp" title="實體按鈕控制">ESP32 按鈕</div>
+      <div class="cp-auth-btn" id="cpAuthWeb" title="網頁控制">網頁控制</div>
+    </div>
+    <div class="cp-status" id="cpStatus">
+      <span class="cp-mode-tag esp">ESP32</span>實體 BTN1/BTN2 主控
+    </div>
+    <!-- Web control buttons (visible only in web mode) -->
+    <div id="cpWebCtrl" style="display:none;flex-direction:column;gap:6px">
+      <button class="dp-btn dp-btn-start" id="cpBtn1">BTN1 — 開機 / 開始校正</button>
+      <button class="dp-btn dp-btn-pause" id="cpBtn2" disabled>BTN2 — 開始量測</button>
+      <div style="font-family:var(--mono);font-size:.58rem;color:var(--text3);line-height:1.7;margin-top:4px;padding-top:6px;border-top:1px solid var(--line)">
+        <div class="dp-calib-bar" style="margin-bottom:4px"><div class="dp-calib-fill" id="cpCalibFill"></div></div>
+        <div id="cpTimer" style="color:var(--text2)">等待操作...</div>
+        <div style="margin-top:3px">校正時長 <span id="cpCalibSec">60</span>s</div>
+      </div>
+    </div>
+    <div id="cpEspHints" style="font-family:var(--mono);font-size:.58rem;color:var(--text3);line-height:1.8;margin-top:2px">
+      使用 ESP32 實體按鈕控制<br>
+      BTN1 = 開機/校正/暫停繼續<br>
+      BTN2 = 開始量測/停止<br>
+      <span style="color:var(--text3)">切換「網頁控制」後可在此<br>操作按鈕，指令透過 BLE/USB 送出</span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Demo 模擬面板 ==================== -->
+<div id="demoPanel" class="hidden">
+  <div id="demoPanelHead">
+    <span class="dp-title">🎮 ESP32 模擬</span>
+    <button id="demoPanelClose">✕</button>
+  </div>
+  <div id="demoPanelBody">
+    <div class="dp-phase ph-idle" id="dpPhase">IDLE</div>
+    <div class="dp-timer" id="dpTimer">等待操作...</div>
+    <div class="dp-calib-bar"><div class="dp-calib-fill" id="dpCalibFill"></div></div>
+    <!-- BTN1：主控制開關（開機/校正/暫停/強制停止） -->
+    <button class="dp-btn dp-btn-start" id="dpBtn1">BTN1 — 開機 / 開始校正</button>
+    <!-- BTN2：量測開關（校正完成後才解鎖） -->
+    <button class="dp-btn dp-btn-pause" id="dpBtn2" disabled>BTN2 — 開始量測</button>
+    <div style="font-family:var(--mono);font-size:.58rem;color:var(--text3);line-height:1.7;margin-top:4px;padding-top:6px;border-top:1px solid var(--line)">
+      <b style="color:var(--text2)">操作流程：</b><br>
+      ① BTN1 開機 → 自動開始校正<br>
+      ② 校正完成 → BTN2 解鎖（綠色）<br>
+      ③ BTN2 → 開始量測<br>
+      ④ 量測中：BTN1=暫停 / BTN2=停止<br>
+      <span style="color:var(--text3)">校正時長 <span id="dpCalibSec">60</span>s</span>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ============================================================
+// CONFIG — 從設定頁讀取，可透過 BLE 同步至 ESP32
+// ============================================================
+const CFG = {
+  w_hr: 0.4, w_gsr: 0.2, w_resp: 0.4,
+  rest_hr: 70, max_hr: 120,
+  calm_resp: 12, stress_resp: 24,
+  calib: 60,
+  gsr_thresh: 15,
+  hr_thresh: 500,
+  resp_thresh: 200,
+  data_rate: 20,   // Hz ESP32 送出速率（1~50）
+  chart_rate: 10,  // Hz 前端圖表取樣上限
+};
+
+// ============================================================
+// STATE
+// ============================================================
+const S = {
+  phase: 'idle',   // idle | calibrating | waiting_for_start | running | paused | ended
+  startMs: null,
+  calibEndSec: null,   // 校正區間結束秒數（用於畫背景）
+  bleDevice: null, bleChar: null, connected: false,
+  timerRaf: null,
+
+  // 數據 — 只存 RUNNING 期間的點（不含校正）
+  hr:   [],  // {t, raw, bpm}
+  gsr:  [],  // {t, raw}
+  resp: [],  // {t, raw, rpm}
+  score:[],  // {t, val}
+
+  // 基準值（來自 ESP32 BASELINE 封包 或 前端自算）
+  base: { hr: null, gsr: null, resp: null },
+
+  // ── 前端基準值累積器（校正期間自算）──
+  calibBuf: { hr: [], gsr: [], resp: [] },
+
+  gsrTriggers: 0,
+  gsrConsec: 0,
+
+  // 連線模式：null | 'ble' | 'usb'
+  connMode: null,
+
+  // 比較頁數據集
+  compareSets: [],
+};
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pg = btn.dataset.page;
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('page-' + pg).classList.add('active');
+    if (pg === 'analysis') refreshAnalysis();
+  });
+});
+
+document.querySelectorAll('.sub-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.subtab;
+    btn.closest('.page').querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sub-page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('subtab-' + id).classList.add('active');
+    if (id === 'report') buildReport();
+  });
+});
+
+// ============================================================
+// CHART HELPERS
+// ============================================================
+const chartDark = {
+  responsive: true, maintainAspectRatio: false, animation: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { type: 'linear', grid: { color: '#1a1e28' }, ticks: { color: '#454d66', font: { size: 9, family: 'IBM Plex Mono' }, maxTicksLimit: 10 } },
+    y: { grid: { color: '#1a1e28' }, ticks: { color: '#454d66', font: { size: 9, family: 'IBM Plex Mono' }, maxTicksLimit: 6 } },
+  }
+};
+
+function mkLineChart(id, datasets, extraOpts = {}) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: Object.assign({}, chartDark, extraOpts),
+  });
+}
+
+// Calib region background plugin
+const calibBgPlugin = {
+  id: 'calibBg',
+  beforeDraw(chart) {
+    if (!S.calibEndSec) return;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+    const x0 = xScale.getPixelForValue(-S.calibEndSec);
+    const x1 = xScale.getPixelForValue(0);
+    if (x1 <= x0) return;
+    const { ctx, chartArea: { top, bottom } } = chart;
+    ctx.save();
+    ctx.fillStyle = 'rgba(242,102,106,0.08)';
+    ctx.fillRect(x0, top, x1 - x0, bottom - top);
+    ctx.restore();
+  }
+};
+Chart.register(calibBgPlugin);
+
+// ============================================================
+// LIVE CHARTS
+// ============================================================
+const liveCharts = {};
+
+function initLiveCharts() {
+  const mk = (id, color) => mkLineChart(id, [
+    { label: 'raw', data: [], borderColor: color, borderWidth: 1.4, pointRadius: 0, fill: false, tension: 0.2 },
+    { label: 'avg', data: [], borderColor: color, borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false, tension: 0 },
+  ]);
+
+  liveCharts.hr   = mk('cLiveHR',  '#f2666a');
+  liveCharts.gsr  = mk('cLiveGSR', '#f0b429');
+  liveCharts.resp = mk('cLiveRR',  '#3ecf8e');
+
+  liveCharts.overview = mkLineChart('cOverview', [
+    { label: 'HR raw',   data: [], borderColor: '#f2666a', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.2, yAxisID: 'y1' },
+    { label: 'HR avg',   data: [], borderColor: '#f2666a', borderWidth: 0.8, borderDash: [4,3], pointRadius: 0, fill: false, tension: 0, yAxisID: 'y1' },
+    { label: 'GSR raw',  data: [], borderColor: '#f0b429', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.2, yAxisID: 'y2' },
+    { label: 'GSR avg',  data: [], borderColor: '#f0b429', borderWidth: 0.8, borderDash: [4,3], pointRadius: 0, fill: false, tension: 0, yAxisID: 'y2' },
+    { label: 'Resp raw', data: [], borderColor: '#3ecf8e', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.2, yAxisID: 'y3' },
+    { label: 'Resp avg', data: [], borderColor: '#3ecf8e', borderWidth: 0.8, borderDash: [4,3], pointRadius: 0, fill: false, tension: 0, yAxisID: 'y3' },
+  ], {
+    plugins: {
+      legend: {
+        display: true,
+        labels: { color: '#7a8099', font: { size: 9, family: 'IBM Plex Mono' }, boxWidth: 10, padding: 10,
+          filter: item => !item.text.includes('avg')
+        }
+      },
+      calibBg: true,
+    },
+    scales: {
+      x: { type: 'linear', grid: { color: '#1a1e28' }, ticks: { color: '#454d66', font: { size: 9 }, maxTicksLimit: 12 } },
+      y1: { display: false }, y2: { display: false }, y3: { display: false },
+    }
+  });
+}
+
+const MAX_PTS = 1200;
+function pushPt(ds, pt) { ds.push(pt); if (ds.length > MAX_PTS) ds.shift(); }
+
+function updateLiveChart(chart, t, raw) {
+  const pts = chart.data.datasets[0].data;
+  pushPt(pts, { x: t, y: raw });
+  // rolling avg (last 30 pts)
+  const win = pts.slice(-30);
+  const avg = win.reduce((a, b) => a + b.y, 0) / win.length;
+  pushPt(chart.data.datasets[1].data, { x: t, y: avg });
+  chart.update('none');
+}
+
+function updateOverview(t, hr, gsr, resp) {
+  const ds = liveCharts.overview.data.datasets;
+  pushPt(ds[0].data, { x: t, y: hr });
+  pushPt(ds[2].data, { x: t, y: gsr });
+  pushPt(ds[4].data, { x: t, y: resp });
+  if ((S.hr.length) % 8 === 0) {
+    const a = arr => arr.slice(-30).reduce((s, p) => s + p.y, 0) / Math.min(arr.length, 30);
+    pushPt(ds[1].data, { x: t, y: a(ds[0].data) });
+    pushPt(ds[3].data, { x: t, y: a(ds[2].data) });
+    pushPt(ds[5].data, { x: t, y: a(ds[4].data) });
+  }
+  liveCharts.overview.update('none');
+}
+
+// ============================================================
+// TIMER
+// ============================================================
+function fmt(ms) {
+  const s = Math.floor(ms / 1000);
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+function startTimer() {
+  function tick() {
+    if (S.startMs) document.getElementById('mainTimer').textContent = fmt(Date.now() - S.startMs);
+    S.timerRaf = requestAnimationFrame(tick);
+  }
+  cancelAnimationFrame(S.timerRaf);
+  S.timerRaf = requestAnimationFrame(tick);
+}
+
+// ============================================================
+// STATUS BANNER — single source of truth for UI state
+// ============================================================
+function setPhaseUI(phase, customText) {
+  S.phase = phase;
+  const badge  = document.getElementById('phaseBadge');
+  const dot    = document.getElementById('statusDot');
+  const main   = document.getElementById('statusMainText');
+  const sub    = document.getElementById('statusSubText');
+  const banner = document.getElementById('statusBanner');
+  const timer  = document.getElementById('mainTimer');
+  const ptext  = document.getElementById('phaseText');
+
+  // Reset
+  badge.className = 'phase-badge';
+  timer.className = 'timer-value';
+
+  const cfg = {
+    idle: {
+      badgeCls: 'ph-idle',   badgeTxt: 'IDLE',
+      dotColor: '#454d66',   bannerBorder: 'var(--line)',
+      main: '閒置中 — 等待 ESP32 操作',
+      sub:  'BTN1 = 開機並開始校正',
+      timerCls: '',
+    },
+    calibrating: {
+      badgeCls: 'ph-calib',  badgeTxt: 'CALIBRATING',
+      dotColor: '#f0b429',   bannerBorder: 'rgba(240,180,41,.35)',
+      main: '🔧 校正中 — ESP32 正在採集靜息基準值',
+      sub:  '校正完成後 BTN2 解鎖，按下即可開始量測',
+      timerCls: 'cal',
+    },
+    waiting_for_start: {
+      badgeCls: 'ph-paused', badgeTxt: 'READY',
+      dotColor: '#9b7fe8',   bannerBorder: 'rgba(155,127,232,.5)',
+      main: '✅ 基準值採集完成 — 按下「開始量測」',
+      sub:  '點擊右上角「▶ 開始量測」按鈕，或按 ESP32 BTN2',
+      timerCls: '',
+    },
+    running: {
+      badgeCls: 'ph-run',    badgeTxt: 'RUNNING',
+      dotColor: '#f2666a',   bannerBorder: 'rgba(242,102,106,.35)',
+      main: '📡 量測中 — 正在接收生理數據',
+      sub:  'BTN1 = 暫停   BTN2 = 停止並分析',
+      timerCls: 'rec',
+    },
+    paused: {
+      badgeCls: 'ph-paused', badgeTxt: 'PAUSED',
+      dotColor: '#9b7fe8',   bannerBorder: 'rgba(155,127,232,.35)',
+      main: '⏸ 暫停中 — 數據接收暫停',
+      sub:  'BTN1 = 繼續   BTN2 = 停止並分析',
+      timerCls: '',
+    },
+    ended: {
+      badgeCls: 'ph-idle',   badgeTxt: 'ENDED',
+      dotColor: '#3ecf8e',   bannerBorder: 'rgba(62,207,142,.25)',
+      main: '✅ 量測完成',
+      sub:  '即將跳轉數據中心...',
+      timerCls: '',
+    },
+  };
+
+  const c = cfg[phase] || cfg.idle;
+  badge.classList.add(c.badgeCls);
+  badge.textContent = c.badgeTxt;
+  dot.style.background = c.dotColor;
+  dot.style.boxShadow  = `0 0 8px ${c.dotColor}`;
+  banner.style.borderColor = c.bannerBorder;
+  main.textContent = customText || c.main;
+  sub.textContent  = c.sub;
+  if (c.timerCls) timer.classList.add(c.timerCls);
+  if (ptext) ptext.textContent = c.main;
+  document.getElementById('calibTime').textContent = CFG.calib + 's';
+
+  // Sync web-ctrl panel state
+  if (typeof cpOnPhaseChange === 'function') cpOnPhaseChange(phase);
+
+  // Show/hide stop+pause buttons only during active session
+  const isActive  = (phase === 'running' || phase === 'paused');
+  const isReady   = (phase === 'waiting_for_start');
+  document.getElementById('btnStop').classList.toggle('hidden', !isActive);
+  document.getElementById('btnPause').classList.toggle('hidden', !isActive);
+  document.getElementById('btnStartMeasure').classList.toggle('hidden', !isReady);
+  if (phase === 'paused') {
+    document.getElementById('btnPause').textContent = '繼續接收';
+  } else {
+    document.getElementById('btnPause').textContent = '暫停接收';
+  }
+}
+
+// ============================================================
+// CONTROL BUTTONS — only STOP/PAUSE send commands back to ESP32
+// (Calibration / Start are handled by physical buttons on ESP32)
+// ============================================================
+document.getElementById('btnStop').addEventListener('click', () => {
+  if (S.connMode) deviceWrite('STOP');
+  else stopDemo();
+});
+
+document.getElementById('btnStartMeasure').addEventListener('click', () => {
+  if (S.phase !== 'waiting_for_start') return;
+  if (S.connMode) {
+    deviceWrite('START');           // BLE / USB → ESP32 收到後回 STATUS,RUNNING
+  } else {
+    // Demo 模式：直接觸發 dpBtn2 的邏輯
+    document.getElementById('dpBtn2').click();
+  }
+});
+
+document.getElementById('btnPause').addEventListener('click', () => {
+  if (S.phase === 'running') {
+    if (S.connMode) deviceWrite('PAUSE');
+    // UI will update when ESP32 sends STATUS,PAUSED back
+    // But for USB we can optimistically update
+    if (S.connMode === 'usb') setPhaseUI('paused');
+  } else if (S.phase === 'paused') {
+    if (S.connMode) deviceWrite('RESUME');
+    if (S.connMode === 'usb') setPhaseUI('running');
+  }
+});
+
+document.getElementById('btnExportCsv').addEventListener('click', exportCsv);
+
+// Demo button — toggle the floating panel
+document.getElementById('btnDemo').addEventListener('click', () => {
+  document.getElementById('demoPanel').classList.toggle('hidden');
+  document.getElementById('dpCalibSec').textContent = CFG.calib;
+});
+
+function enterRunning() {
+  // ★ 從 waiting_for_start 或 idle 進入：完整重置 + 重新計時
+  if (S.phase === 'waiting_for_start' || S.phase === 'idle') {
+    S.hr = []; S.gsr = []; S.resp = []; S.score = [];
+    S.gsrTriggers = 0; S.gsrConsec = 0;
+    S._lastChartT = -999;
+    S.startMs = Date.now();
+    startTimer();
+  } else {
+    // 從 paused 恢復 or 校正後直接進入：保留已有計時與資料
+    if (!S.startMs) S.startMs = Date.now();
+    startTimer();
+  }
+  setPhaseUI('running');
+  camAutoStart(); // ★ 自動開始錄影
+}
+
+function handleEnd() {
+  cancelAnimationFrame(S.timerRaf);
+  setPhaseUI('ended');
+  document.getElementById('btnDemo').textContent = 'Demo';
+  camAutoStop(); // ★ 自動停止錄影
+  setTimeout(() => switchPage('analysis'), 800);
+}
+
+function switchPage(pg) {
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-page="${pg}"]`).classList.add('active');
+  document.getElementById('page-' + pg).classList.add('active');
+  if (pg === 'analysis') refreshAnalysis();
+}
+
+// ============================================================
+// DATA INGESTION — parse BLE packet
+// ============================================================
+function ingestPacket(raw) {
+  const line = raw.trim();
+
+  // BASELINE packet — calibration done, show waiting_for_start on main UI
+  if (line.startsWith('BASELINE,')) {
+    const p = line.split(',');
+    const espGsr  = parseFloat(p[1]);
+    const espHr   = parseFloat(p[2]);
+    const espResp = parseFloat(p[3]);
+
+    // ★ 前端自算：若 calibBuf 有累積資料，優先使用（更準確）
+    const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+    const buf = S.calibBuf;
+    const feHr   = avg(buf.hr);
+    const feGsr  = avg(buf.gsr);
+    const feResp = avg(buf.resp);
+
+    // 前端有自算才用前端的，否則用 ESP32 回傳的
+    S.base.hr   = feHr   != null ? feHr   : espHr;
+    S.base.gsr  = feGsr  != null ? feGsr  : espGsr;
+    S.base.resp = feResp != null ? feResp : espResp;
+
+    console.log(`[BASELINE] frontend(${feHr?.toFixed(1)},${feGsr?.toFixed(1)},${feResp?.toFixed(1)}) esp32(${espHr},${espGsr},${espResp}) pts=${buf.hr.length}`);
+    S.calibBuf = { hr: [], gsr: [], resp: [] }; // clear buffer
+    updateBaselineUI();
+    setPhaseUI('waiting_for_start');
+    return;
+  }
+
+  // STATUS packet — ESP32 drives all state changes
+  if (line.startsWith('STATUS,')) {
+    const status = line.split(',')[1];
+    if (status === 'WAITING') {
+      cancelAnimationFrame(S.timerRaf);
+      document.getElementById('mainTimer').textContent = '00:00';
+      setPhaseUI('idle');
+    } else if (status === 'CALIBRATING') {
+      // Clear previous session data
+      S.hr = []; S.gsr = []; S.resp = []; S.score = [];
+      S.gsrTriggers = 0; S.gsrConsec = 0;
+      S.base = { hr: null, gsr: null, resp: null };
+      S.calibBuf = { hr: [], gsr: [], resp: [] };  // reset accumulator
+      S.startMs = Date.now();
+      startTimer();
+      setPhaseUI('calibrating');
+    } else if (status === 'RUNNING') {
+      enterRunning();
+    } else if (status === 'WAITING_FOR_START') {
+      // ESP32 校正完成，等待前端 BLE START 指令
+      setPhaseUI('waiting_for_start');
+    } else if (status === 'PAUSED') {
+      setPhaseUI('paused');
+    } else if (status === 'STOPPED') {
+      handleEnd();
+    }
+    return;
+  }
+
+  // END packet
+  if (line === 'END') {
+    handleEnd();
+    return;
+  }
+
+  // DATA packet: DATA,sec,gsrRaw,hrRaw,respRaw,BPM,RPM,Score
+  if (line.startsWith('DATA,')) {
+    const p = line.split(',');
+    if (p.length < 8) return;
+    const t      = parseFloat(p[1]);
+    const gsrRaw = parseInt(p[2]);
+    const hrRaw  = parseInt(p[3]);
+    const respRaw= parseInt(p[4]);
+    const bpm    = parseFloat(p[5]);
+    const rpm    = parseFloat(p[6]);
+    const score  = parseFloat(p[7]);
+    if (isNaN(t)) return;
+
+    // ★ 校正期間：累加到基準值 buffer（前端自算）
+    if (S.phase === 'calibrating') {
+      const elapsed = (Date.now() - S.startMs) / 1000;
+      if (elapsed <= CFG.calib) {
+        S.calibBuf.hr.push(hrRaw);
+        S.calibBuf.gsr.push(gsrRaw);
+        S.calibBuf.resp.push(respRaw);
+      }
+      return; // 校正期間不進入正式數據
+    }
+
+    S.hr.push({ t, raw: hrRaw, bpm });
+    S.gsr.push({ t, raw: gsrRaw });
+    S.resp.push({ t, raw: respRaw, rpm });
+    S.score.push({ t, val: score });
+
+    updateOverview(t, hrRaw, gsrRaw, respRaw);
+
+    // ★ 圖表降採樣：只在 chart_rate 允許的間隔才畫點，避免高頻時圖表卡頓
+    const chartIntervalS = 1 / (CFG.chart_rate || 10);
+    const lastChartT = S._lastChartT || -999;
+    if (t - lastChartT >= chartIntervalS) {
+      S._lastChartT = t;
+      updateLiveChart(liveCharts.hr,   t, hrRaw);
+      updateLiveChart(liveCharts.gsr,  t, gsrRaw);
+      updateLiveChart(liveCharts.resp, t, respRaw);
+    }
+
+    updateStressGauge(score);
+    updateStatsUI(t, hrRaw, gsrRaw, respRaw, bpm, rpm);
+    updateLogTable(t, gsrRaw, hrRaw, respRaw, bpm, rpm, score);
+    return;
+  }
+}
+
+function updateBaselineUI() {
+  const b = S.base;
+  document.getElementById('baseHR').textContent    = b.hr   != null ? b.hr.toFixed(0)   : '--';
+  document.getElementById('baseGSR').textContent   = b.gsr  != null ? b.gsr.toFixed(0)  : '--';
+  document.getElementById('baseRR').textContent    = b.resp != null ? b.resp.toFixed(0)  : '--';
+  document.getElementById('baseRawHR').textContent  = b.hr   != null ? b.hr.toFixed(0)   : '--';
+  document.getElementById('baseGSR').textContent    = b.gsr  != null ? b.gsr.toFixed(0)  : '--';
+  document.getElementById('baseRawRR').textContent  = b.resp != null ? b.resp.toFixed(0)  : '--';
+  document.getElementById('s_hr_base').textContent  = b.hr   != null ? b.hr.toFixed(1)   : '--';
+  document.getElementById('s_gsr_base').textContent = b.gsr  != null ? b.gsr.toFixed(1)  : '--';
+  document.getElementById('s_rr_base').textContent  = b.resp != null ? b.resp.toFixed(1)  : '--';
+  // mark calib end for chart background
+  S.calibEndSec = CFG.calib;
+}
+
+// ============================================================
+// UI UPDATES
+// ============================================================
+function updateStressGauge(score) {
+  const v = Math.round(score);
+  document.getElementById('stressScore').textContent = v;
+  document.getElementById('gaugeFill').style.width   = v + '%';
+  document.getElementById('gaugeNeedle').style.left  = v + '%';
+  let color, level;
+  if (v < 25)      { color = '#3ecf8e'; level = 'Relaxed'; }
+  else if (v < 50) { color = '#3ecf8e'; level = 'Mild'; }
+  else if (v < 75) { color = '#f0b429'; level = 'Elevated'; }
+  else             { color = '#f2666a'; level = 'High Stress'; }
+  document.getElementById('stressScore').style.color = color;
+  document.getElementById('stressLevel').textContent = level;
+}
+
+function runStat(arr) {
+  if (!arr.length) return { avg: null, max: null, min: null };
+  const v = arr.map(p => p.raw);
+  const avg = v.reduce((a, b) => a + b, 0) / v.length;
+  return { avg, max: Math.max(...v), min: Math.min(...v) };
+}
+
+function countPeaks(arr) {
+  if (arr.length < 3) return 0;
+  const v = arr.map(p => p.raw);
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  let c = 0;
+  for (let i = 1; i < v.length - 1; i++)
+    if (v[i] > mean && v[i] > v[i-1] && v[i] > v[i+1]) c++;
+  return c;
+}
+
+function updateStatsUI(t, hrRaw, gsrRaw, respRaw, bpm, rpm) {
+  const hrS  = runStat(S.hr);
+  const gsrS = runStat(S.gsr);
+  const rrS  = runStat(S.resp);
+
+  // HR
+  document.getElementById('curRawHR').textContent = hrRaw;
+  document.getElementById('curHR').textContent    = bpm > 0 ? bpm.toFixed(1) : '--';
+  document.getElementById('s_hr_avg').textContent = hrS.avg ? hrS.avg.toFixed(1) : '--';
+  document.getElementById('s_hr_max').textContent = hrS.max ? hrS.max.toFixed(0) : '--';
+  document.getElementById('s_hr_min').textContent = hrS.min ? hrS.min.toFixed(0) : '--';
+  document.getElementById('s_hr_cnt').textContent = S.hr.length;
+  document.getElementById('s_hr_pk').textContent  = countPeaks(S.hr);
+
+  // GSR
+  document.getElementById('curGSR').textContent    = gsrRaw;
+  document.getElementById('s_gsr_avg').textContent = gsrS.avg ? gsrS.avg.toFixed(1) : '--';
+  document.getElementById('s_gsr_max').textContent = gsrS.max ? gsrS.max.toFixed(0) : '--';
+  document.getElementById('s_gsr_min').textContent = gsrS.min ? gsrS.min.toFixed(0) : '--';
+  document.getElementById('s_gsr_cnt').textContent = S.gsr.length;
+
+  if (S.base.gsr) {
+    const chg = (S.base.gsr - gsrRaw) / S.base.gsr * 100;
+    document.getElementById('gsrChange').textContent = chg.toFixed(1) + '%';
+    const el = document.getElementById('gsrAlert');
+    if (chg >= CFG.gsr_thresh) {
+      S.gsrConsec++;
+      if (S.gsrConsec >= 3) {
+        S.gsrTriggers++;
+        document.getElementById('s_gsr_trig').textContent = S.gsrTriggers;
+        el.className = 'gsr-alert show gsr-hi';
+        el.textContent = `GSR 警示：導電性相對基準上升 ${chg.toFixed(1)}%（閾值 ${CFG.gsr_thresh}%）`;
+      } else {
+        el.className = 'gsr-alert show gsr-warn';
+        el.textContent = `GSR 偵測：上升 ${chg.toFixed(1)}%，確認中...`;
+      }
+    } else {
+      S.gsrConsec = 0;
+      el.className = 'gsr-alert show gsr-ok';
+      el.textContent = `GSR 正常：相對變化 ${chg.toFixed(1)}%`;
+    }
+  }
+
+  // Resp
+  document.getElementById('curRawRR').textContent = respRaw;
+  document.getElementById('curRR').textContent    = rpm > 0 ? rpm.toFixed(1) : '--';
+  document.getElementById('s_rr_avg').textContent = rrS.avg ? rrS.avg.toFixed(1) : '--';
+  document.getElementById('s_rr_max').textContent = rrS.max ? rrS.max.toFixed(0) : '--';
+  document.getElementById('s_rr_min').textContent = rrS.min ? rrS.min.toFixed(0) : '--';
+  document.getElementById('s_rr_cnt').textContent = S.resp.length;
+  document.getElementById('s_rr_pk').textContent  = countPeaks(S.resp);
+
+  document.getElementById('dataCount').textContent = S.hr.length;
+  if (t > 0) document.getElementById('srDisplay').textContent = (S.hr.length / t).toFixed(1) + ' Hz';
+}
+
+function updateLogTable(t, gsr, hr, resp, bpm, rpm, score) {
+  if (S.hr.length % 1 !== 0) return; // every row
+  const tbody = document.getElementById('liveLogBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${t.toFixed(1)}</td><td>${gsr}</td><td>${hr}</td><td>${resp}</td><td>${bpm > 0 ? bpm.toFixed(1) : '--'}</td><td>${rpm > 0 ? rpm.toFixed(1) : '--'}</td><td>${score.toFixed(1)}</td>`;
+  tbody.insertBefore(tr, tbody.firstChild);
+  if (tbody.children.length > 120) tbody.removeChild(tbody.lastChild);
+  document.getElementById('logCount').textContent = S.hr.length + ' rows';
+}
+
+// ============================================================
+// BLE
+// ============================================================
+const SVC_UUID  = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+const CHAR_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+
+document.getElementById('btnBle').addEventListener('click', () => document.getElementById('bleModal').classList.add('show'));
+document.getElementById('btnBleCancel').addEventListener('click', () => document.getElementById('bleModal').classList.remove('show'));
+
+document.getElementById('btnBleScan').addEventListener('click', async () => {
+  const statusEl = document.getElementById('bleModalStatus');
+  if (!navigator.bluetooth) { statusEl.textContent = '此瀏覽器不支援 Web Bluetooth（請使用 Chrome）。'; return; }
+  try {
+    statusEl.textContent = '掃描中...';
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'ESP32_Biometric_System' }],
+      optionalServices: [SVC_UUID],
+    });
+    S.bleDevice = device;
+    statusEl.textContent = '連線中...';
+    const server  = await device.gatt.connect();
+    const service = await server.getPrimaryService(SVC_UUID);
+    S.bleChar     = await service.getCharacteristic(CHAR_UUID);
+    await S.bleChar.startNotifications();
+    S.bleChar.addEventListener('characteristicvaluechanged', e => {
+      const txt = new TextDecoder().decode(e.target.value);
+      ingestPacket(txt);
+    });
+    S.connected = true;
+    S.connMode = 'ble';
+    setBleUI(true);
+    document.getElementById('bleModal').classList.remove('show');
+    // 連線成功 → 顯示「等待 ESP32 狀態」，不做任何其他動作
+    // 等待 ESP32 onConnect 發送的 STATUS,xxx 封包來同步狀態
+    document.getElementById('statusMainText').textContent = '✅ BLE 已連線 — 等待 ESP32 狀態同步...';
+    document.getElementById('statusSubText').textContent  = '請按 ESP32 上的 BTN2 開始校正，或等待自動狀態推送';
+    device.addEventListener('gattserverdisconnected', () => {
+      S.connected = false; S.connMode = null; setBleUI(false);
+      setPhaseUI('idle', 'BLE 斷線 — 請重新連接');
+    });
+  } catch (err) {
+    statusEl.textContent = '錯誤: ' + err.message;
+  }
+});
+
+function setBleUI(on) {
+  document.getElementById('bleDot').className   = 'ble-dot' + (on ? ' on' : '');
+  document.getElementById('bleText').textContent = on ? 'BLE 已連線' : 'BLE 未連線';
+  updateCtrlBtn();
+}
+
+async function bleWrite(cmd) {
+  if (S.connMode !== 'ble' || !S.bleChar) return;
+  try {
+    await S.bleChar.writeValueWithoutResponse(new TextEncoder().encode(cmd));
+  } catch (e) { console.warn('BLE write error:', e); }
+}
+
+// ============================================================
+// USB SERIAL (Web Serial API)
+// ============================================================
+// State
+S.usbPort       = null;
+S.usbReader     = null;
+S.usbWriter     = null;
+S.usbReading    = false;
+
+document.getElementById('btnUsb').addEventListener('click', async () => {
+  // If already connected, disconnect
+  if (S.connMode === 'usb') {
+    await usbDisconnect();
+    return;
+  }
+  if (!navigator.serial) {
+    alert('此瀏覽器不支援 Web Serial API。\n請使用 Chrome 或 Edge，並確認網址為 https:// 或 localhost。');
+    return;
+  }
+  try {
+    // Request port — user picks from dialog (ESP32 shows up as CP210x or CH340)
+    const port = await navigator.serial.requestPort();
+    S.usbPort = port;
+
+    // Open at 115200, matching Arduino Serial.begin(115200)
+    await port.open({ baudRate: 115200 });
+
+    S.connMode = 'usb';
+    setUsbUI(true);
+    document.getElementById('btnUsb').textContent = 'USB 中斷';
+    // 連線成功 → 顯示等待狀態，不做任何其他動作
+    document.getElementById('statusMainText').textContent = '✅ USB 已連線 — 等待 ESP32 狀態同步...';
+    document.getElementById('statusSubText').textContent  = '請按 ESP32 上的 BTN2 開始校正';
+
+    // Start read loop
+    usbReadLoop();
+
+    // Get writer for sending commands back to ESP32
+    const ws = port.writable.getWriter();
+    S.usbWriter = ws;
+    ws.releaseLock(); // release immediately; we re-acquire on each write
+
+  } catch (err) {
+    if (err.name !== 'NotFoundError') {
+      // NotFoundError = user cancelled picker, not a real error
+      console.warn('USB connect error:', err);
+      alert('USB 連線失敗：' + err.message);
+    }
+  }
+});
+
+async function usbReadLoop() {
+  S.usbReading = true;
+  let buffer = '';
+
+  while (S.usbPort && S.usbPort.readable && S.usbReading) {
+    S.usbReader = S.usbPort.readable.getReader();
+    try {
+      while (true) {
+        const { value, done } = await S.usbReader.read();
+        if (done) break;
+        // value is Uint8Array
+        buffer += new TextDecoder().decode(value);
+        // Split on newlines, process complete lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete last chunk
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed) ingestPacket(trimmed);
+        }
+      }
+    } catch (err) {
+      if (S.usbReading) console.warn('USB read error:', err);
+    } finally {
+      try { S.usbReader.releaseLock(); } catch(_) {}
+    }
+  }
+}
+
+async function usbDisconnect() {
+  S.usbReading = false;
+  S.connMode   = null;
+  try { if (S.usbReader) S.usbReader.cancel(); } catch(_) {}
+  try { if (S.usbPort)   await S.usbPort.close(); } catch(_) {}
+  S.usbPort   = null;
+  S.usbReader = null;
+  S.usbWriter = null;
+  setUsbUI(false);
+  document.getElementById('btnUsb').textContent = 'USB 連線';
+}
+
+async function usbWrite(cmd) {
+  if (S.connMode !== 'usb' || !S.usbPort || !S.usbPort.writable) return;
+  try {
+    const writer = S.usbPort.writable.getWriter();
+    await writer.write(new TextEncoder().encode(cmd + '\n'));
+    writer.releaseLock();
+  } catch (e) { console.warn('USB write error:', e); }
+}
+
+function setUsbUI(on) {
+  document.getElementById('usbDot').className   = 'ble-dot' + (on ? ' on' : '');
+  document.getElementById('usbText').textContent = on ? 'USB 已連線' : 'USB 未連線';
+  updateCtrlBtn();
+}
+
+// Unified write — sends to whichever transport is active
+async function deviceWrite(cmd) {
+  if (S.connMode === 'ble') bleWrite(cmd);
+  else if (S.connMode === 'usb') usbWrite(cmd);
+}
+
+// ============================================================
+// CAMERA RECORDING SYSTEM (MediaRecorder API)
+//
+// ▸ 頁面載入即自動請求鏡頭並開始錄製（背景持續）
+// ▸ 自動切片：每 SLICE_MINUTES 分鐘自動切一段存起來
+// ▸ 量測結束後可選下載任意切片或合併全部
+// ============================================================
+const CAM = {
+  stream:        null,
+  recorder:      null,
+  chunks:        [],       // 當前切片的 chunks
+  recordedBlob:  null,     // 最新完整錄影（整段）
+  slices:        [],       // [{blob, startMs, endMs, label}] 各切片
+  recordingStart: null,    // 整段錄影開始時間 (Date.now())
+  sliceStart:    null,     // 當前切片開始時間
+  active:        false,
+  sliceTimer:    null,     // setInterval for auto-slice
+};
+
+const SLICE_MINUTES = 5;   // 每幾分鐘自動切片
+
+function getSupportedMime() {
+  const types = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4'];
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+}
+
+// 啟動錄製（可選：是否為切片模式）
+async function camStart(silent = false) {
+  if (CAM.active) return;
+  try {
+    if (!CAM.stream) {
+      CAM.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+    CAM.chunks        = [];
+    CAM.recordedBlob  = null;
+    CAM.slices        = [];
+    CAM.recordingStart = Date.now();
+    CAM.sliceStart    = Date.now();
+
+    const mime = getSupportedMime();
+    CAM.recorder = new MediaRecorder(CAM.stream, { mimeType: mime });
+
+    CAM.recorder.ondataavailable = e => {
+      if (e.data && e.data.size > 0) CAM.chunks.push(e.data);
+    };
+
+    CAM.recorder.onstop = () => {
+      // Finalise current slice
+      if (CAM.chunks.length > 0) {
+        const blob = new Blob(CAM.chunks, { type: CAM.recorder.mimeType });
+        const sliceIdx = CAM.slices.length + 1;
+        const startMs = CAM.sliceStart;
+        const endMs   = Date.now();
+        CAM.slices.push({ blob, startMs, endMs,
+          label: `片段 ${sliceIdx}（${_fmtDur(startMs, endMs)}）` });
+        CAM.recordedBlob = new Blob(
+          CAM.slices.map(s => s.blob),
+          { type: CAM.recorder.mimeType }
+        );
+        CAM.chunks = [];
+      }
+      CAM.active = false;
+      clearInterval(CAM.sliceTimer);
+      camUpdateUI();
+      console.log(`[CAM] Stopped. ${CAM.slices.length} slice(s), total size: ${CAM.recordedBlob?.size ?? 0}`);
+    };
+
+    CAM.recorder.start(500); // chunk every 0.5s
+    CAM.active = true;
+
+    // 自動切片 timer
+    CAM.sliceTimer = setInterval(() => camSlice(), SLICE_MINUTES * 60 * 1000);
+
+    camUpdateUI();
+    if (!silent) console.log('[CAM] Recording started, auto-slice every', SLICE_MINUTES, 'min');
+  } catch (err) {
+    // Don't alert if silent (auto-start on load) — user may not have a camera
+    console.warn('[CAM] Cannot access camera:', err.message);
+    if (!silent) alert('無法存取鏡頭：' + err.message);
+    CAM.active = false;
+    camUpdateUI();
+  }
+}
+
+// 切片：把當前錄到的東西存成一段，然後無縫接著錄下一段
+function camSlice() {
+  if (!CAM.active || !CAM.recorder || CAM.recorder.state === 'inactive') return;
+
+  const sliceIdx = CAM.slices.length + 1;
+  const startMs  = CAM.sliceStart;
+
+  // 先取出目前已累積的 chunks 存成切片
+  if (CAM.chunks.length > 0) {
+    const blob   = new Blob(CAM.chunks, { type: CAM.recorder.mimeType });
+    const endMs  = Date.now();
+    CAM.slices.push({ blob, startMs, endMs,
+      label: `片段 ${sliceIdx}（${_fmtDur(startMs, endMs)}）` });
+    CAM.chunks = [];
+    CAM.sliceStart = Date.now();
+    // 更新 recordedBlob（所有切片合併）
+    CAM.recordedBlob = new Blob(
+      CAM.slices.map(s => s.blob),
+      { type: CAM.recorder.mimeType }
+    );
+    console.log(`[CAM] Auto-sliced → segment ${sliceIdx}, slices total: ${CAM.slices.length}`);
+    camUpdateUI();
+  }
+}
+
+function _fmtDur(startMs, endMs) {
+  const sec = Math.round((endMs - startMs) / 1000);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function camStop() {
+  clearInterval(CAM.sliceTimer);
+  if (CAM.recorder && CAM.recorder.state !== 'inactive') CAM.recorder.stop();
+  // 不停止 stream，讓鏡頭保持開啟（下次可直接複用）
+}
+
+function camUpdateUI() {
+  const ind = document.getElementById('camIndicator');
+  const txt = document.getElementById('camText');
+  const btn = document.getElementById('btnCam');
+  if (!ind) return;
+
+  const sliceCount = CAM.slices.length;
+  if (CAM.active) {
+    ind.classList.remove('cam-off');
+    txt.textContent = sliceCount > 0 ? `錄製中 (${sliceCount}片段)` : '錄製中';
+    btn.textContent = '📷 停止錄製';
+    btn.style.borderColor = 'var(--red)';
+    btn.style.color       = 'var(--red)';
+  } else {
+    ind.classList.add('cam-off');
+    const hasRec = CAM.recordedBlob || sliceCount > 0;
+    txt.textContent = hasRec ? `有錄影 (${sliceCount}片段)` : '未錄製';
+    btn.textContent = hasRec ? '📷 查看回放' : '📷 開始錄製';
+    btn.style.borderColor = hasRec ? 'var(--green)' : 'var(--red)';
+    btn.style.color       = hasRec ? 'var(--green)' : 'var(--red)';
+  }
+}
+
+// ★ 頁面載入後自動嘗試開啟鏡頭（靜默模式，失敗不彈 alert）
+window.addEventListener('load', () => {
+  setTimeout(() => camStart(true), 800);
+});
+
+document.getElementById('btnCam').addEventListener('click', async () => {
+  if (CAM.active) {
+    camStop();
+  } else if (CAM.recordedBlob || CAM.slices.length > 0) {
+    openPlayback(0);
+  } else {
+    await camStart(false);
+  }
+});
+
+// Auto-start/stop tied to measurement phase
+function camAutoStart() { /* already recording from page load; just ensure */ if (!CAM.active) camStart(true); }
+function camAutoStop()  { if (CAM.active) { camSlice(); /* save current segment */ } }
+
+// ── Playback ────────────────────────────────────────────────
+function openPlayback(dataTimeSec) {
+  if (!CAM.recordedBlob && CAM.slices.length === 0) {
+    alert('沒有錄影資料。');
+    return;
+  }
+  const modal  = document.getElementById('playbackModal');
+  const video  = document.getElementById('playbackVideo');
+  const info   = document.getElementById('pbInfo');
+  const evList = document.getElementById('pbEventList');
+  const timeline = document.getElementById('pbTimeline');
+
+  if (video.src) URL.revokeObjectURL(video.src);
+  const blob = CAM.recordedBlob || CAM.slices[CAM.slices.length-1].blob;
+  video.src  = URL.createObjectURL(blob);
+
+  const dataDuration = S.score.length > 0 ? S.score[S.score.length-1].t : 0;
+  const dataStartMs  = S.startMs ? S.startMs + CFG.calib * 1000 : CAM.recordingStart;
+  const videoOffset  = CAM.recordingStart ? (dataStartMs - CAM.recordingStart) / 1000 : 0;
+
+  const jumpTo = sec => {
+    const vt = Math.max(0, videoOffset + sec);
+    video.currentTime = vt;
+    video.play();
+    if (info) info.textContent = `跳至影片 ${vt.toFixed(1)}s（量測 ${sec.toFixed(1)}s）`;
+  };
+
+  video.addEventListener('loadedmetadata', () => jumpTo(dataTimeSec), { once: true });
+
+  // Build stress event markers
+  const events = [];
+  for (let i = 0; i < S.score.length; i++) {
+    if (S.score[i].val >= 60) {
+      let j = i;
+      while (j < S.score.length && S.score[j].val >= 60) j++;
+      const seg = S.score.slice(i, j);
+      events.push({ start: seg[0].t, peak: Math.max(...seg.map(p=>p.val)) });
+      i = j - 1;
+    }
+  }
+
+  timeline.querySelectorAll('.pb-marker').forEach(m => m.remove());
+  evList.innerHTML = '';
+
+  events.forEach((ev, idx) => {
+    const pct = dataDuration > 0 ? ev.start / dataDuration * 100 : 0;
+    const marker = document.createElement('div');
+    marker.className = 'pb-marker';
+    marker.style.left = pct + '%';
+    marker.setAttribute('data-label', `#${idx+1} ${ev.start.toFixed(0)}s`);
+    marker.addEventListener('click', () => jumpTo(ev.start));
+    timeline.appendChild(marker);
+
+    const chip = document.createElement('button');
+    chip.style.cssText = 'padding:3px 9px;font-size:.65rem;cursor:pointer;border:1px solid var(--red);color:var(--red);background:transparent;border-radius:3px;font-family:var(--mono)';
+    chip.textContent = `#${idx+1} ${ev.start.toFixed(0)}s (${ev.peak.toFixed(0)})`;
+    chip.addEventListener('click', () => jumpTo(ev.start));
+    evList.appendChild(chip);
+  });
+
+  if (events.length === 0) evList.innerHTML = '<span style="color:var(--text3);font-size:.68rem;font-family:var(--mono)">無緊張事件</span>';
+
+  // Slice selector
+  const sliceBar = document.getElementById('pbSliceBar');
+  if (sliceBar) {
+    sliceBar.innerHTML = CAM.slices.length > 1
+      ? CAM.slices.map((s,i) => `<button onclick="pbLoadSlice(${i})" style="padding:2px 8px;font-size:.62rem;cursor:pointer;border:1px solid var(--line);color:var(--text2);background:var(--bg3);border-radius:3px;font-family:var(--mono)">${s.label}</button>`).join('')
+      : '';
+  }
+
+  modal.classList.add('show');
+}
+
+window.pbLoadSlice = function(idx) {
+  const s = CAM.slices[idx];
+  if (!s) return;
+  const video = document.getElementById('playbackVideo');
+  if (video.src) URL.revokeObjectURL(video.src);
+  video.src = URL.createObjectURL(s.blob);
+  video.play();
+  const info = document.getElementById('pbInfo');
+  if (info) info.textContent = s.label;
+};
+
+document.getElementById('btnPlaybackClose').addEventListener('click', () => {
+  document.getElementById('playbackModal').classList.remove('show');
+  document.getElementById('playbackVideo').pause();
+});
+
+// ── Export video ─────────────────────────────────────────────
+document.getElementById('btnExportVideo').addEventListener('click', () => {
+  if (!CAM.recordedBlob && CAM.slices.length === 0) return;
+  const blob = CAM.recordedBlob || CAM.slices[CAM.slices.length-1].blob;
+  const startTime = S.startMs ? new Date(S.startMs + CFG.calib*1000) : new Date();
+  const endMs     = S.score.length > 0 ? S.startMs + CFG.calib*1000 + S.score[S.score.length-1].t*1000 : Date.now();
+  const endTime   = new Date(endMs);
+  const fmt = d => `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
+  const avgScore  = S.score.length ? (S.score.reduce((a,p)=>a+p.val,0)/S.score.length).toFixed(0) : '0';
+  const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const filename = `BioMonitor_${fmt(startTime)}-${fmt(endTime)}_stress${avgScore}.${ext}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// ============================================================
+// CONTROL AUTHORITY SYSTEM
+// Modes: 'esp' (ESP32 physical buttons) | 'web' (web UI sends BLE/USB commands)
+// ============================================================
+let _ctrlMode = 'esp';  // 'esp' | 'web'
+// web mode mirrors the same state machine as demo mode, but sends real BLE/USB commands
+let _ctrlState   = 'idle';  // idle | calibrating | waiting_for_start | running | paused
+let _ctrlCalibInterval = null;
+let _ctrlCalibSec = 0;
+
+function cpUpdatePanel() {
+  const btn1 = document.getElementById('cpBtn1');
+  const btn2 = document.getElementById('cpBtn2');
+  const tmr  = document.getElementById('cpTimer');
+  if (!btn1) return;
+
+  btn1.disabled = false;
+  btn2.disabled = false;
+
+  if (_ctrlState === 'idle') {
+    btn1.textContent = 'BTN1 — 開機 / 開始校正';
+    btn1.className   = 'dp-btn dp-btn-start';
+    btn2.textContent = 'BTN2 — 開始量測';
+    btn2.className   = 'dp-btn dp-btn-pause';
+    btn2.disabled    = true;
+    document.getElementById('cpCalibFill').style.width = '0%';
+    if (tmr) tmr.textContent = '等待操作...';
+
+  } else if (_ctrlState === 'calibrating') {
+    btn1.textContent = 'BTN1 — 強制停止 / 關機';
+    btn1.className   = 'dp-btn dp-btn-stop';
+    btn2.textContent = 'BTN2 — 校正中，請稍候…';
+    btn2.className   = 'dp-btn dp-btn-pause';
+    btn2.disabled    = true;
+
+  } else if (_ctrlState === 'waiting_for_start') {
+    btn1.textContent = 'BTN1 — 強制停止 / 關機';
+    btn1.className   = 'dp-btn dp-btn-stop';
+    btn2.textContent = '▶ BTN2 — 開始量測';
+    btn2.className   = 'dp-btn dp-btn-start';
+    btn2.disabled    = false;
+    if (tmr) tmr.textContent = '基準值就緒，按 BTN2 開始';
+
+  } else if (_ctrlState === 'running') {
+    btn1.textContent = 'BTN1 — 暫停';
+    btn1.className   = 'dp-btn dp-btn-pause';
+    btn2.textContent = 'BTN2 — 停止量測';
+    btn2.className   = 'dp-btn dp-btn-stop';
+
+  } else if (_ctrlState === 'paused') {
+    btn1.textContent = 'BTN1 — 繼續';
+    btn1.className   = 'dp-btn dp-btn-start';
+    btn2.textContent = 'BTN2 — 停止量測';
+    btn2.className   = 'dp-btn dp-btn-stop';
+  }
+}
+
+// Sync ctrlState with the actual S.phase when switching to web mode
+function cpSyncStateFromPhase() {
+  const phaseMap = {
+    'idle': 'idle', 'calibrating': 'calibrating',
+    'waiting_for_start': 'waiting_for_start',
+    'running': 'running', 'paused': 'paused', 'ended': 'idle'
+  };
+  _ctrlState = phaseMap[S.phase] || 'idle';
+  cpUpdatePanel();
+}
+
+// Switch authority mode
+function setCtrlMode(mode) {
+  _ctrlMode = mode;
+  const espBtn = document.getElementById('cpAuthEsp');
+  const webBtn = document.getElementById('cpAuthWeb');
+  const webCtrl = document.getElementById('cpWebCtrl');
+  const espHints = document.getElementById('cpEspHints');
+  const statusTag = document.getElementById('cpStatus');
+  const hints = document.getElementById('statusBtnHints');
+  const btnCtrl = document.getElementById('btnCtrl');
+
+  if (mode === 'web') {
+    espBtn.classList.remove('active'); webBtn.classList.add('active');
+    webCtrl.style.display = 'flex';
+    espHints.style.display = 'none';
+    statusTag.innerHTML = '<span class="cp-mode-tag web">網頁</span>網頁 UI 送指令至 ESP32';
+    if (hints) hints.innerHTML = '<span style="color:var(--purple)">🎛 網頁控制中 — BTN1/BTN2 由此操作</span>';
+    document.getElementById('cpCalibSec').textContent = CFG.calib;
+    cpSyncStateFromPhase();
+  } else {
+    espBtn.classList.add('active'); webBtn.classList.remove('active');
+    webCtrl.style.display = 'none';
+    espHints.style.display = 'block';
+    statusTag.innerHTML = '<span class="cp-mode-tag esp">ESP32</span>實體 BTN1/BTN2 主控';
+    if (hints) hints.innerHTML = '<span>BTN1 = 開機/校正/暫停</span><span style="margin-left:12px">BTN2 = 開始量測/停止</span>';
+    // cancel any ongoing web-ctrl calibration timer
+    clearInterval(_ctrlCalibInterval);
+  }
+}
+
+// Authority toggle buttons
+document.getElementById('cpAuthEsp').addEventListener('click', () => setCtrlMode('esp'));
+document.getElementById('cpAuthWeb').addEventListener('click', () => setCtrlMode('web'));
+
+// Web-ctrl BTN1 (mirrors demo BTN1 but sends real commands)
+document.getElementById('cpBtn1').addEventListener('click', () => {
+  if (_ctrlMode !== 'web') return;
+
+  if (_ctrlState === 'idle') {
+    _ctrlState = 'calibrating';
+    _ctrlCalibSec = 0;
+    document.getElementById('cpCalibFill').style.width = '0%';
+    deviceWrite('CALIB');
+    cpUpdatePanel();
+    // local countdown for visual feedback
+    _ctrlCalibInterval = setInterval(() => {
+      _ctrlCalibSec++;
+      const pct = Math.min(100, _ctrlCalibSec / CFG.calib * 100);
+      document.getElementById('cpCalibFill').style.width = pct + '%';
+      const tmr = document.getElementById('cpTimer');
+      if (tmr) tmr.textContent = `校正中 ${_ctrlCalibSec}/${CFG.calib}s`;
+      if (_ctrlCalibSec >= CFG.calib) {
+        clearInterval(_ctrlCalibInterval);
+        // Wait for ESP32 to send BASELINE packet to confirm
+      }
+    }, 1000);
+
+  } else if (_ctrlState === 'calibrating') {
+    clearInterval(_ctrlCalibInterval);
+    _ctrlCalibSec = 0;
+    document.getElementById('cpCalibFill').style.width = '0%';
+    deviceWrite('STOP');
+    _ctrlState = 'idle';
+    cpUpdatePanel();
+
+  } else if (_ctrlState === 'waiting_for_start') {
+    deviceWrite('STOP');
+    _ctrlState = 'idle';
+    document.getElementById('cpCalibFill').style.width = '0%';
+    cpUpdatePanel();
+
+  } else if (_ctrlState === 'running') {
+    deviceWrite('PAUSE');
+    _ctrlState = 'paused';
+    cpUpdatePanel();
+
+  } else if (_ctrlState === 'paused') {
+    deviceWrite('RESUME');
+    _ctrlState = 'running';
+    cpUpdatePanel();
+  }
+});
+
+// Web-ctrl BTN2
+document.getElementById('cpBtn2').addEventListener('click', () => {
+  if (_ctrlMode !== 'web') return;
+  if (_ctrlState === 'idle' || _ctrlState === 'calibrating') return;
+
+  if (_ctrlState === 'waiting_for_start') {
+    deviceWrite('START');
+    _ctrlState = 'running';
+    cpUpdatePanel();
+
+  } else if (_ctrlState === 'running' || _ctrlState === 'paused') {
+    clearInterval(_ctrlCalibInterval);
+    deviceWrite('STOP');
+    _ctrlState = 'idle';
+    cpUpdatePanel();
+  }
+});
+
+// Keep ctrlState in sync when ESP32 sends status packets
+// (injected into ingestPacket via a hook — see below)
+function cpOnPhaseChange(newPhase) {
+  if (_ctrlMode !== 'web') return;
+  const m = {'idle':'idle','calibrating':'calibrating',
+    'waiting_for_start':'waiting_for_start','running':'running',
+    'paused':'paused','ended':'idle'};
+  if (m[newPhase] !== undefined) { _ctrlState = m[newPhase]; cpUpdatePanel(); }
+}
+
+// Open/close ctrl panel
+document.getElementById('btnCtrl').addEventListener('click', () => {
+  document.getElementById('ctrlPanel').classList.toggle('hidden');
+  document.getElementById('cpCalibSec').textContent = CFG.calib;
+});
+document.getElementById('ctrlPanelClose').addEventListener('click', () => {
+  document.getElementById('ctrlPanel').classList.add('hidden');
+});
+
+// Draggable ctrl panel
+(function() {
+  const panel = document.getElementById('ctrlPanel');
+  const head  = document.getElementById('ctrlPanelHead');
+  head.addEventListener('mousedown', e => {
+    const startX = e.clientX - panel.offsetLeft;
+    const startY = e.clientY - panel.offsetTop;
+    panel.style.right = 'auto'; panel.style.bottom = 'auto';
+    const move = ev => { panel.style.left=(ev.clientX-startX)+'px'; panel.style.top=(ev.clientY-startY)+'px'; };
+    const up = () => { document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+})();
+
+// Show/hide btnCtrl based on connection state
+function updateCtrlBtn() {
+  const btn = document.getElementById('btnCtrl');
+  if (S.connMode) { btn.classList.remove('hidden'); }
+  else { btn.classList.add('hidden'); document.getElementById('ctrlPanel').classList.add('hidden'); }
+}
+
+// ============================================================
+// DEMO MODE — floating panel simulates ESP32 physical buttons
+// State: demo_idle → demo_calibrating → demo_running → demo_paused
+// ============================================================
+let _demoState   = 'idle';   // idle | calibrating | waiting_for_start | running | paused
+let _demoTick    = 0;
+let _demoInterval = null;
+let _calibInterval = null;
+let _calibSec    = 0;
+let _hasBaselineSim = false;
+
+// ─────────────────────────────────────────────────────────────
+// Demo 面板按鈕狀態對照表
+//
+//  狀態                BTN1                      BTN2
+//  ──────────────────────────────────────────────────────────
+//  idle                ✅ 開機/開始校正           🔘 disabled (灰)
+//  calibrating         🔴 強制停止/關機           🔘 disabled (灰)
+//  waiting_for_start   🔴 強制停止/關機           ✅ 開始量測 (綠)
+//  running             🟡 暫停                   🔴 停止量測
+//  paused              🟢 繼續                   🔴 停止量測
+// ─────────────────────────────────────────────────────────────
+function dpUpdatePanel() {
+  const ph   = document.getElementById('dpPhase');
+  const btn1 = document.getElementById('dpBtn1');
+  const btn2 = document.getElementById('dpBtn2');
+  const tmr  = document.getElementById('dpTimer');
+
+  ph.className  = 'dp-phase';
+  btn1.disabled = false;
+  btn2.disabled = false;
+
+  if (_demoState === 'idle') {
+    ph.classList.add('ph-idle');   ph.textContent = 'IDLE';
+    btn1.textContent = 'BTN1 — 開機 / 開始校正';
+    btn1.className   = 'dp-btn dp-btn-start';
+    btn2.textContent = 'BTN2 — 開始量測';
+    btn2.className   = 'dp-btn dp-btn-pause';
+    btn2.disabled    = true;
+    document.getElementById('dpCalibFill').style.width = '0%';
+    tmr.textContent  = '等待操作...';
+
+  } else if (_demoState === 'calibrating') {
+    ph.classList.add('ph-calib');  ph.textContent = 'CALIBRATING';
+    btn1.textContent = 'BTN1 — 強制停止 / 關機';
+    btn1.className   = 'dp-btn dp-btn-stop';
+    btn2.textContent = 'BTN2 — 校正中，請稍候…';
+    btn2.className   = 'dp-btn dp-btn-pause';
+    btn2.disabled    = true;
+    tmr.textContent  = `校正中 ${_calibSec}/${CFG.calib}s`;
+
+  } else if (_demoState === 'waiting_for_start') {
+    ph.classList.add('ph-paused'); ph.textContent = '✅ 校正完成';
+    btn1.textContent = 'BTN1 — 強制停止 / 關機';
+    btn1.className   = 'dp-btn dp-btn-stop';
+    btn2.textContent = '▶ BTN2 — 開始量測';
+    btn2.className   = 'dp-btn dp-btn-start';
+    btn2.disabled    = false;
+    tmr.textContent  = '基準值就緒，按 BTN2 開始';
+
+  } else if (_demoState === 'running') {
+    ph.classList.add('ph-run');    ph.textContent = 'RUNNING';
+    btn1.textContent = 'BTN1 — 暫停';
+    btn1.className   = 'dp-btn dp-btn-pause';
+    btn2.textContent = 'BTN2 — 停止量測';
+    btn2.className   = 'dp-btn dp-btn-stop';
+    tmr.textContent  = `量測中 ${_demoTick}s`;
+
+  } else if (_demoState === 'paused') {
+    ph.classList.add('ph-paused'); ph.textContent = 'PAUSED';
+    btn1.textContent = 'BTN1 — 繼續';
+    btn1.className   = 'dp-btn dp-btn-start';
+    btn2.textContent = 'BTN2 — 停止量測';
+    btn2.className   = 'dp-btn dp-btn-stop';
+    tmr.textContent  = `暫停中 (${_demoTick}s)`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// BTN1：主控制開關
+//   idle              → 開機 + 開始校正
+//   calibrating       → 強制停止 / 關機
+//   waiting_for_start → 強制停止 / 關機
+//   running           → 暫停
+//   paused            → 繼續
+// ─────────────────────────────────────────────────────────────
+document.getElementById('dpBtn1').addEventListener('click', () => {
+  if (_demoState === 'idle') {
+    _demoState = 'calibrating';
+    _calibSec  = 0;
+    _hasBaselineSim = false;
+    document.getElementById('dpCalibFill').style.width = '0%';
+    ingestPacket('STATUS,CALIBRATING');
+    dpUpdatePanel();
+
+    _calibInterval = setInterval(() => {
+      _calibSec++;
+      const pct = Math.min(100, _calibSec / CFG.calib * 100);
+      document.getElementById('dpCalibFill').style.width = pct + '%';
+      document.getElementById('dpTimer').textContent = `校正中 ${_calibSec}/${CFG.calib}s`;
+
+      if (_calibSec >= CFG.calib) {
+        clearInterval(_calibInterval);
+        _hasBaselineSim = true;
+        // ★ 前端自算基準值：用模擬靜息值加小噪音填充 calibBuf
+        //   (這樣 BASELINE handler 就會用前端計算結果)
+        S.calibBuf = { hr: [], gsr: [], resp: [] };
+        for (let i = 0; i < CFG.calib; i++) {
+          const n = () => (Math.random()-0.5)*40;
+          S.calibBuf.hr.push(Math.round(2000 + n()));
+          S.calibBuf.gsr.push(Math.round(1800 + n()));
+          S.calibBuf.resp.push(Math.round(1500 + n()));
+        }
+        ingestPacket('BASELINE,1800,2000,1500');
+        _demoState = 'waiting_for_start';
+        dpUpdatePanel();
+      }
+    }, 1000);
+
+  } else if (_demoState === 'calibrating') {
+    clearInterval(_calibInterval);
+    _calibSec = 0;
+    document.getElementById('dpCalibFill').style.width = '0%';
+    ingestPacket('STATUS,STOPPED');
+    _demoState = 'idle';
+    dpUpdatePanel();
+
+  } else if (_demoState === 'waiting_for_start') {
+    ingestPacket('STATUS,STOPPED');
+    _demoState = 'idle';
+    _calibSec  = 0;
+    document.getElementById('dpCalibFill').style.width = '0%';
+    dpUpdatePanel();
+
+  } else if (_demoState === 'running') {
+    clearInterval(_demoInterval);
+    _demoState = 'paused';
+    ingestPacket('STATUS,PAUSED');
+    dpUpdatePanel();
+
+  } else if (_demoState === 'paused') {
+    _demoState = 'running';
+    ingestPacket('STATUS,RUNNING');
+    dpUpdatePanel();
+    _startDemoDataStream();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// BTN2：量測開關
+//   idle / calibrating  → disabled，不動作
+//   waiting_for_start   → ★ 開始量測 (RUNNING)
+//   running / paused    → 停止量測
+// ─────────────────────────────────────────────────────────────
+document.getElementById('dpBtn2').addEventListener('click', () => {
+  if (_demoState === 'idle' || _demoState === 'calibrating') {
+    return; // button is disabled, ignore
+  }
+
+  if (_demoState === 'waiting_for_start') {
+    // ★ 核心修正：校正完成 → BTN2 → 正式開始量測
+    _demoState = 'running';
+    _demoTick  = 0;
+    ingestPacket('STATUS,RUNNING');
+    dpUpdatePanel();
+    _startDemoDataStream();
+
+  } else if (_demoState === 'running' || _demoState === 'paused') {
+    clearInterval(_demoInterval);
+    clearInterval(_calibInterval);
+    ingestPacket('STATUS,STOPPED');
+    _demoState = 'idle';
+    _demoTick  = 0;
+    dpUpdatePanel();
+  }
+});
+
+// Close panel
+document.getElementById('demoPanelClose').addEventListener('click', () => {
+  document.getElementById('demoPanel').classList.add('hidden');
+});
+
+// Draggable panel
+(function() {
+  const panel = document.getElementById('demoPanel');
+  const head  = document.getElementById('demoPanelHead');
+  let ox=0, oy=0, startX=0, startY=0;
+  head.addEventListener('mousedown', e => {
+    startX = e.clientX - panel.offsetLeft;
+    startY = e.clientY - panel.offsetTop;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    const move = ev => {
+      panel.style.left = (ev.clientX - startX) + 'px';
+      panel.style.top  = (ev.clientY - startY) + 'px';
+    };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+})();
+
+function _startDemoDataStream() {
+  clearInterval(_demoInterval);
+  _demoInterval = setInterval(() => {
+    if (_demoState !== 'running') return;
+    _demoTick++;
+    const n   = () => (Math.random() - 0.5) * 50;
+    const t   = parseFloat((_demoTick / 30).toFixed(2)); // 30 pts/sec → time in seconds
+    const stressEnv = 0.35 + 0.25 * Math.sin(t * 0.04) + 0.15 * Math.sin(t * 0.11);
+    const hr  = Math.round(2000 + stressEnv * 500 + n());
+    const gsr = Math.round(1800 - stressEnv * 300 + n());
+    const rr  = Math.round(1500 + stressEnv * 300 + n());
+    const bpm = +(70 + stressEnv * 30).toFixed(1);
+    const rpm = +(14 + stressEnv * 8).toFixed(1);
+    const score = +(Math.min(100, Math.max(0, stressEnv * 120))).toFixed(1);
+    ingestPacket(`DATA,${t},${gsr},${hr},${rr},${bpm},${rpm},${score}`);
+    if (_demoTick % 30 === 0) {
+      document.getElementById('dpTimer').textContent = `量測中 ${Math.floor(_demoTick/30)}s`;
+    }
+  }, 33); // ~30 fps
+}
+
+function startDemoCalib() {} // kept for compatibility but not used directly
+function startDemoRun() {}
+function stopDemo() {
+  clearInterval(_demoInterval);
+  clearInterval(_calibInterval);
+  if (_demoState !== 'idle') {
+    ingestPacket('STATUS,STOPPED');
+    _demoState = 'idle';
+    dpUpdatePanel();
+  }
+}
+
+// ============================================================
+// STRESS RECALCULATION (frontend, uses CFG weights + baselines)
+// ============================================================
+function recalcStress() {
+  if (!S.hr.length) return [];
+  const b = S.base;
+  const result = [];
+  const n = Math.min(S.hr.length, S.gsr.length, S.resp.length);
+  for (let i = 0; i < n; i++) {
+    const t   = S.hr[i].t;
+    const bpm = S.hr[i].bpm  || 0;
+    const rpm = S.resp[i].rpm || 0;
+    const gsrRaw = S.gsr[i].raw;
+
+    let s_hr = 0, s_gsr = 0, s_resp = 0;
+
+    if (bpm > 0 && CFG.max_hr > CFG.rest_hr) {
+      s_hr = Math.min(100, Math.max(0, (bpm - CFG.rest_hr) / (CFG.max_hr - CFG.rest_hr) * 100));
+    }
+    if (b.gsr && b.gsr > 0) {
+      const delta = (b.gsr - gsrRaw) / b.gsr;
+      s_gsr = Math.min(100, Math.max(0, (delta / (CFG.gsr_thresh / 100)) * 100));
+    }
+    if (rpm > 0 && CFG.stress_resp > CFG.calm_resp) {
+      s_resp = Math.min(100, Math.max(0, (rpm - CFG.calm_resp) / (CFG.stress_resp - CFG.calm_resp) * 100));
+    }
+
+    // Normalize weights so they always sum to 1
+    const wSum = CFG.w_hr + CFG.w_gsr + CFG.w_resp;
+    const whr  = wSum > 0 ? CFG.w_hr   / wSum : 0.4;
+    const wgsr = wSum > 0 ? CFG.w_gsr  / wSum : 0.2;
+    const wrr  = wSum > 0 ? CFG.w_resp / wSum : 0.4;
+
+    const val = Math.min(100, Math.max(0, s_hr * whr + s_gsr * wgsr + s_resp * wrr));
+    result.push({ t, val, s_hr, s_gsr, s_resp });
+  }
+  return result;
+}
+
+// ============================================================
+// REPORT BUILDER
+// ============================================================
+let rptCharts = {};
+function buildReport() {
+  const now = new Date();
+  document.getElementById('rpt_date').textContent        = now.toLocaleDateString('zh-TW');
+  document.getElementById('rpt_footer_date').textContent = now.toLocaleString('zh-TW');
+
+  const dur = S.hr.length > 0 ? S.hr[S.hr.length-1].t : 0;
+  document.getElementById('rpt_duration').textContent = `時長: ${dur.toFixed(0)} s`;
+  document.getElementById('rpt_pts').textContent      = `資料點: ${S.hr.length}`;
+
+  // ── Baseline ──────────────────────────────────────────────
+  const b = S.base;
+  const bEl = document.getElementById('rpt_baseline');
+  if (b.hr != null || b.gsr != null || b.resp != null) {
+    bEl.innerHTML = [
+      b.hr   != null ? `<div style="background:#f0f4ff;border:1px solid #d0daff;border-radius:4px;padding:5px 10px;text-align:center"><div style="font-size:.54rem;color:#888;font-family:'IBM Plex Mono',monospace">HR baseline</div><div style="font-size:1.1rem;font-weight:700;color:#2d4a8a;font-family:'IBM Plex Mono',monospace">${b.hr.toFixed(0)}</div></div>` : '',
+      b.gsr  != null ? `<div style="background:#fffbf0;border:1px solid #ffe0a0;border-radius:4px;padding:5px 10px;text-align:center"><div style="font-size:.54rem;color:#888;font-family:'IBM Plex Mono',monospace">GSR baseline</div><div style="font-size:1.1rem;font-weight:700;color:#8a5a00;font-family:'IBM Plex Mono',monospace">${b.gsr.toFixed(0)}</div></div>` : '',
+      b.resp != null ? `<div style="background:#f0fff8;border:1px solid #a0e0c0;border-radius:4px;padding:5px 10px;text-align:center"><div style="font-size:.54rem;color:#888;font-family:'IBM Plex Mono',monospace">Resp baseline</div><div style="font-size:1.1rem;font-weight:700;color:#006040;font-family:'IBM Plex Mono',monospace">${b.resp.toFixed(0)}</div></div>` : '',
+    ].filter(Boolean).join('');
+  } else {
+    bEl.innerHTML = '<span style="color:#aaa;font-size:.76rem;font-family:\'IBM Plex Mono\'">無基準值記錄</span>';
+  }
+
+  // ── Stress data: ESP32 優先，fallback 重算 ───────────────
+  const espOK = S.score && S.score.length > 0 && S.score.some(p => p.val > 0);
+  const stressData = espOK
+    ? S.score.map(p => ({ t: p.t, val: p.val }))
+    : recalcStress();
+  const src = espOK ? 'ESP32 計算值' : '前端重算';
+
+  // ── Formula ───────────────────────────────────────────────
+  const wSum = CFG.w_hr + CFG.w_gsr + CFG.w_resp || 1;
+  const whr  = (CFG.w_hr   / wSum).toFixed(2);
+  const wgsr = (CFG.w_gsr  / wSum).toFixed(2);
+  const wrr  = (CFG.w_resp / wSum).toFixed(2);
+  document.getElementById('rpt_formula').textContent =
+    `Score = S_HR×${whr} + S_GSR×${wgsr} + S_Resp×${wrr}  [${src}]`;
+
+  // ── Stress statistics ─────────────────────────────────────
+  const sv    = stressData.map(p => p.val);
+  const sAvg  = sv.length ? sv.reduce((a,v)=>a+v,0)/sv.length : 0;
+  const sMax  = sv.length ? Math.max(...sv) : 0;
+  const sMin  = sv.length ? Math.min(...sv) : 0;
+  const sEv60 = (() => {
+    // Count distinct events (contiguous blocks ≥ 60)
+    let cnt = 0, inEv = false;
+    sv.forEach(v => { if (v >= 60 && !inEv) { cnt++; inEv=true; } else if (v < 60) inEv=false; });
+    return cnt;
+  })();
+  document.getElementById('rpt_stressStats').innerHTML = [
+    ['平均 Avg',    sAvg.toFixed(1),  '#4a9eff'],
+    ['最大 Max',    sMax.toFixed(1),  '#f2666a'],
+    ['最小 Min',    sMin.toFixed(1),  '#3ecf8e'],
+    ['緊張事件',    sEv60,            '#f0b429'],
+  ].map(([lbl, val, col]) =>
+    `<div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:4px;padding:6px 8px;text-align:center">
+      <div style="font-size:.54rem;color:#999;font-family:'IBM Plex Mono',monospace;margin-bottom:3px">${lbl}</div>
+      <div style="font-size:1.2rem;font-weight:700;color:${col};font-family:'IBM Plex Mono',monospace">${val}</div>
+    </div>`
+  ).join('');
+
+  // ── Stress events table ───────────────────────────────────
+  const evEl = document.getElementById('rpt_events');
+  const events = [];
+  for (let i = 0; i < stressData.length; i++) {
+    if (stressData[i].val >= 60) {
+      let j = i;
+      while (j < stressData.length && stressData[j].val >= 60) j++;
+      const seg = stressData.slice(i, j);
+      events.push({
+        start: seg[0].t, end: seg[seg.length-1].t,
+        peak:  Math.max(...seg.map(p=>p.val)),
+        avg:   seg.reduce((a,p)=>a+p.val,0)/seg.length,
+      });
+      i = j - 1;
+    }
+  }
+  if (!events.length) {
+    evEl.innerHTML = '<div style="color:#aaa;font-size:.74rem;font-family:\'IBM Plex Mono\'">無緊張事件 (Score &lt; 60)</div>';
+  } else {
+    const hasVideo = !!(CAM.recordedBlob);
+    evEl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:.7rem">
+      <thead><tr style="border-bottom:2px solid #ddd;color:#888;font-size:.6rem">
+        <th style="padding:5px 6px;text-align:left">#</th>
+        <th style="padding:5px 6px;text-align:left">開始(s)</th>
+        <th style="padding:5px 6px;text-align:left">結束(s)</th>
+        <th style="padding:5px 6px;text-align:left">持續(s)</th>
+        <th style="padding:5px 6px;text-align:left">Peak</th>
+        <th style="padding:5px 6px;text-align:left">平均</th>
+        <th style="padding:5px 6px;text-align:left">評估</th>
+        ${hasVideo ? '<th style="padding:5px 6px;text-align:left">回放</th>' : ''}
+      </tr></thead>
+      <tbody>${events.map((e,i) => {
+        const dur = (e.end - e.start).toFixed(0);
+        const [level, color] = e.peak >= 80 ? ['高度緊張','#c0392b'] : ['中度緊張','#d68910'];
+        const pbBtn = hasVideo
+          ? `<button onclick="openPlayback(${e.start})" style="padding:2px 8px;font-size:.65rem;cursor:pointer;border:1px solid var(--purple);color:var(--purple);background:transparent;border-radius:3px;font-family:var(--mono)">▶ 查看</button>`
+          : '';
+        return `<tr style="border-bottom:1px solid #f0f0f0">
+          <td style="padding:5px 6px;color:#888">${i+1}</td>
+          <td style="padding:5px 6px">${e.start.toFixed(1)}</td>
+          <td style="padding:5px 6px">${e.end.toFixed(1)}</td>
+          <td style="padding:5px 6px">${dur}</td>
+          <td style="padding:5px 6px;font-weight:700;color:${color}">${e.peak.toFixed(1)}</td>
+          <td style="padding:5px 6px">${e.avg.toFixed(1)}</td>
+          <td style="padding:5px 6px;color:${color};font-weight:600">${level}</td>
+          ${hasVideo ? `<td style="padding:5px 6px">${pbBtn}</td>` : ''}
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
+
+  // ── Charts ────────────────────────────────────────────────
+  Object.values(rptCharts).forEach(c => { try { c.destroy(); } catch(_){} });
+  rptCharts = {};
+
+  const lightOpts = {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { type:'linear', grid:{color:'#f4f4f4'}, ticks:{color:'#bbb', font:{size:8,family:'IBM Plex Mono'}, maxTicksLimit:10} },
+      y: {                 grid:{color:'#f4f4f4'}, ticks:{color:'#bbb', font:{size:8,family:'IBM Plex Mono'}, maxTicksLimit:5}  },
+    },
+  };
+
+  // Full-session stress chart — colored by level, threshold line, event annotations
+  if (stressData.length > 0) {
+    // Build segment-colored datasets
+    const mkSegColor = pt => {
+      if (pt.val >= 80) return '#c0392b';
+      if (pt.val >= 60) return '#f2666a';
+      if (pt.val >= 30) return '#f0b429';
+      return '#3ecf8e';
+    };
+    const stressPoints = stressData.map(p => ({ x: p.t, y: p.val }));
+    const tMax = stressData[stressData.length-1].t;
+    const tMin = stressData[0].t;
+
+    const stressCtx = document.getElementById('cRptStress').getContext('2d');
+    // Segment colors as background fill areas
+    // Use gradient-like approach: single dataset with point background colors
+    rptCharts.stress = new Chart(stressCtx, {
+      type: 'line',
+      data: {
+        datasets: [
+          // Colored line segments (one dataset per color range, filled)
+          {
+            label: 'Score',
+            data: stressPoints,
+            borderColor: '#2d7dd2',
+            borderWidth: 2,
+            pointRadius: stressPoints.length < 120 ? 2 : 0,
+            pointBackgroundColor: stressData.map(p => mkSegColor(p)),
+            fill: false, tension: 0.2,
+            segment: {
+              borderColor: ctx => {
+                const v = ctx.p0.parsed.y;
+                if (v >= 80) return '#c0392b';
+                if (v >= 60) return '#f2666a';
+                if (v >= 30) return '#f0b429';
+                return '#3ecf8e';
+              }
+            }
+          },
+          // Threshold 60 dashed line
+          {
+            label: 'Threshold 60',
+            data: [{ x: tMin, y: 60 }, { x: tMax, y: 60 }],
+            borderColor: '#e74c3c', borderWidth: 1.2,
+            borderDash: [5, 4], pointRadius: 0, fill: false,
+          },
+          // Threshold 30 dashed line
+          {
+            label: 'Threshold 30',
+            data: [{ x: tMin, y: 30 }, { x: tMax, y: 30 }],
+            borderColor: '#f0b429', borderWidth: 1,
+            borderDash: [3, 4], pointRadius: 0, fill: false,
+          },
+        ]
+      },
+      options: {
+        ...lightOpts,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                if (ctx.datasetIndex !== 0) return null;
+                const v = ctx.parsed.y;
+                const lv = v>=80?'高度緊張':v>=60?'中度緊張':v>=30?'輕度緊張':'放鬆';
+                return `Score: ${v.toFixed(1)} — ${lv}`;
+              }
+            }
+          }
+        },
+        scales: {
+          ...lightOpts.scales,
+          y: {
+            ...lightOpts.scales.y,
+            min: 0, max: 100,
+            ticks: { color:'#bbb', font:{size:8,family:'IBM Plex Mono'}, callback: v => v },
+          }
+        }
+      }
+    });
+  }
+
+  const mkRpt = (id, color, arr, yKey='raw') => {
+    const canvas = document.getElementById(id);
+    if (!canvas || !arr.length) return;
+    return new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: { datasets: [{ data: arr.map(p=>({x:p.t,y:p[yKey]})), borderColor:color, borderWidth:1.3, pointRadius:0, fill:false, tension:0.2 }] },
+      options: lightOpts,
+    });
+  };
+  rptCharts.hr   = mkRpt('cRptHR',   '#e74c3c', S.hr);
+  rptCharts.gsr  = mkRpt('cRptGSR',  '#d4a017', S.gsr);
+  rptCharts.resp = mkRpt('cRptResp', '#27ae60', S.resp);
+}
+
+// Print report
+document.getElementById('btnPrintReport').addEventListener('click', () => {
+  window.print();
+});
+
+// ============================================================
+// LANGUAGE TOGGLE
+// ============================================================
+let _lang = 'zh';
+document.getElementById('btnLang').addEventListener('click', () => {
+  _lang = _lang === 'zh' ? 'en' : 'zh';
+  document.getElementById('btnLang').textContent = _lang === 'zh' ? '🌐 EN' : '🌐 中文';
+  document.querySelectorAll('[data-zh]').forEach(el => {
+    if (_lang === 'en' && el.dataset.en) {
+      el.textContent = el.dataset.en;
+    } else if (_lang === 'zh' && el.dataset.zh) {
+      el.textContent = el.dataset.zh;
+    }
+  });
+});
+
+// ANALYSIS PAGE
+// ============================================================
+let anaCharts = {};
+
+function refreshAnalysis() {
+  const has = S.hr.length > 0;
+  document.getElementById('anaEmpty').classList.toggle('hidden', has);
+  document.getElementById('anaContent').classList.toggle('hidden', !has);
+  if (!has) return;
+
+  // Baseline info bar
+  const bInfo = document.getElementById('anaBaselineInfo');
+  if (S.base.hr != null || S.base.gsr != null || S.base.resp != null) {
+    bInfo.innerHTML = [
+      S.base.hr   != null ? `<span style="background:rgba(242,102,106,.12);border:1px solid rgba(242,102,106,.3);border-radius:4px;padding:3px 10px;color:var(--hr)">HR: <b>${S.base.hr.toFixed(0)}</b></span>` : '',
+      S.base.gsr  != null ? `<span style="background:rgba(240,180,41,.12);border:1px solid rgba(240,180,41,.3);border-radius:4px;padding:3px 10px;color:var(--gsr)">GSR: <b>${S.base.gsr.toFixed(0)}</b> <span style="color:var(--text3);font-size:.65rem">(緊張→ADC↓)</span></span>` : '',
+      S.base.resp != null ? `<span style="background:rgba(62,207,142,.12);border:1px solid rgba(62,207,142,.3);border-radius:4px;padding:3px 10px;color:var(--rr)">Resp: <b>${S.base.resp.toFixed(0)}</b></span>` : '',
+    ].filter(Boolean).join('');
+  } else {
+    bInfo.innerHTML = '<span style="color:var(--text3);font-size:.76rem">無基準值（ESP32 校正後才會出現）</span>';
+  }
+
+  // Full-session stress chart (ESP32 Score preferred, fallback recalc)
+  const espOK = S.score && S.score.length > 0 && S.score.some(p => p.val > 0);
+  const stressSrc = espOK ? S.score.map(p => ({ t: p.t, val: p.val })) : recalcStress();
+  const srcLabel  = espOK ? 'ESP32 計算值' : '前端重算';
+
+  const sv = stressSrc.map(p => p.val);
+  const sAvg = sv.length ? (sv.reduce((a,v)=>a+v,0)/sv.length).toFixed(1) : '--';
+  const sMax = sv.length ? Math.max(...sv).toFixed(1) : '--';
+  let evCnt = 0, inEv = false;
+  sv.forEach(v => { if (v>=60&&!inEv){evCnt++;inEv=true;}else if(v<60)inEv=false; });
+  document.getElementById('anaStressStats').innerHTML =
+    `<span style="color:var(--accent)">avg ${sAvg}</span> &nbsp; <span style="color:var(--red)">max ${sMax}</span> &nbsp; <span style="color:var(--yellow)">事件 ${evCnt}</span> &nbsp; <span style="color:var(--text3)">[${srcLabel}]</span>`;
+
+  if (anaCharts.stressFull) anaCharts.stressFull.destroy();
+  if (stressSrc.length > 0) {
+    const tMin = stressSrc[0].t, tMax = stressSrc[stressSrc.length-1].t;
+    anaCharts.stressFull = new Chart(
+      document.getElementById('cAnaStressFull').getContext('2d'), {
+      type: 'line',
+      data: { datasets: [
+        {
+          label: 'Stress',
+          data: stressSrc.map(p => ({ x: p.t, y: p.val })),
+          borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2,
+          segment: {
+            borderColor: ctx => {
+              const v = ctx.p0.parsed.y;
+              return v>=80?'#c0392b':v>=60?'#f2666a':v>=30?'#f0b429':'#3ecf8e';
+            }
+          }
+        },
+        { label:'60', data:[{x:tMin,y:60},{x:tMax,y:60}], borderColor:'rgba(242,102,106,.5)', borderWidth:1, borderDash:[5,4], pointRadius:0, fill:false },
+        { label:'30', data:[{x:tMin,y:30},{x:tMax,y:30}], borderColor:'rgba(240,180,41,.4)',  borderWidth:1, borderDash:[3,4], pointRadius:0, fill:false },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: ctx => {
+            if (ctx.datasetIndex!==0) return null;
+            const v = ctx.parsed.y;
+            return `Score: ${v.toFixed(1)} — ${v>=80?'高度緊張':v>=60?'中度緊張':v>=30?'輕度緊張':'放鬆'}`;
+          }}}
+        },
+        scales: {
+          x: { type:'linear', grid:{color:'var(--bg3)'}, ticks:{color:'var(--text3)',font:{size:9,family:'IBM Plex Mono'},maxTicksLimit:10} },
+          y: { min:0, max:100, grid:{color:'var(--bg3)'}, ticks:{color:'var(--text3)',font:{size:9,family:'IBM Plex Mono'},maxTicksLimit:5} },
+        }
+      }
+    });
+  }
+
+  const mkAna = (id, label, color, arr) => {
+    if (anaCharts[id]) anaCharts[id].destroy();
+    anaCharts[id] = mkLineChart(id, [
+      { label, data: arr.map(p => ({ x: p.t, y: p.raw })), borderColor: color, borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.2 },
+    ]);
+  };
+  mkAna('cAnaHR',  'HR',   '#f2666a', S.hr);
+  mkAna('cAnaGSR', 'GSR',  '#f0b429', S.gsr);
+  mkAna('cAnaRR',  'Resp', '#3ecf8e', S.resp);
+
+  buildAnomalyList();
+  refreshAdvanced();
+}
+
+function buildAnomalyList() {
+  const list = document.getElementById('anomalyList');
+  list.innerHTML = '';
+  const items = [];
+  if (S.base.hr) S.hr.forEach(p => { if (p.raw > S.base.hr * 1.2) items.push({ t: p.t, desc: 'HR 超過基準 20%', val: p.raw }); });
+  if (S.base.gsr) S.gsr.forEach(p => {
+    const chg = (S.base.gsr - p.raw) / S.base.gsr * 100;
+    if (chg >= CFG.gsr_thresh) items.push({ t: p.t, desc: `GSR 超閾 ${chg.toFixed(1)}%`, val: p.raw, color: '#f0b429' });
+  });
+  if (!items.length) { list.innerHTML = '<div style="color:var(--text3);font-size:.78rem;padding:6px">未偵測到明顯異常。</div>'; return; }
+  items.filter((_, i) => i % 30 === 0).slice(0, 25).forEach(a => {
+    const d = document.createElement('div');
+    d.className = 'anomaly-item';
+    if (a.color) d.style.borderLeftColor = a.color;
+    d.innerHTML = `<span class="an-time">${a.t.toFixed(1)}s</span><span>${a.desc}</span><span class="an-val">${a.val}</span>`;
+    list.appendChild(d);
+  });
+}
+
+function refreshAdvanced() {
+  if (anaCharts.adv) anaCharts.adv.destroy();
+  anaCharts.adv = mkLineChart('cAdvanced', [
+    { label: 'HR',   data: S.hr.map(p   => ({ x: p.t, y: p.raw })), borderColor: '#f2666a', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.2, yAxisID: 'y1' },
+    { label: 'GSR',  data: S.gsr.map(p  => ({ x: p.t, y: p.raw })), borderColor: '#f0b429', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.2, yAxisID: 'y2' },
+    { label: 'Resp', data: S.resp.map(p => ({ x: p.t, y: p.raw })), borderColor: '#3ecf8e', borderWidth: 1.2, pointRadius: 0, fill: false, tension: 0.2, yAxisID: 'y3' },
+  ], {
+    plugins: { legend: { display: true, labels: { color: '#7a8099', font: { size: 9, family: 'IBM Plex Mono' }, boxWidth: 10, padding: 10 } } },
+    scales: {
+      x: { type: 'linear', grid: { color: '#1a1e28' }, ticks: { color: '#454d66', font: { size: 9 } } },
+      y1: { display: false }, y2: { display: false }, y3: { display: false },
+    }
+  });
+
+  // stats table
+  const tbody = document.getElementById('advStatsBody');
+  tbody.innerHTML = '';
+  const row = (label, arr, base, color) => {
+    const v = arr.map(p => p.raw);
+    if (!v.length) return;
+    const avg = v.reduce((a, b) => a + b, 0) / v.length;
+    const max = Math.max(...v), min = Math.min(...v);
+    const std = Math.sqrt(v.map(x => (x - avg) ** 2).reduce((a, b) => a + b, 0) / v.length);
+    const pk = countPeaks(arr);
+    const dur = arr[arr.length-1].t - arr[0].t;
+    const rate = dur > 2 ? Math.round(pk / dur * 60) : '--';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td style="color:${color}">${label}</td><td>${base != null ? base.toFixed(1) : '--'}</td><td>${avg.toFixed(1)}</td><td>${max}</td><td>${min}</td><td>${std.toFixed(1)}</td><td>${pk}</td><td>${rate}</td>`;
+    tbody.appendChild(tr);
+  };
+  row('HR',   S.hr,   S.base.hr,   '#f2666a');
+  row('GSR',  S.gsr,  S.base.gsr,  '#f0b429');
+  row('Resp', S.resp, S.base.resp, '#3ecf8e');
+}
+
+// Advanced controls
+document.getElementById('btnRecalc').addEventListener('click', refreshAdvanced);
+document.getElementById('btnAddLine').addEventListener('click', () => {
+  const t = parseFloat(prompt('輔助線時間 (秒):'));
+  if (!anaCharts.adv || isNaN(t)) return;
+  anaCharts.adv.data.datasets.push({ label: `@${t}s`, data: [{ x: t, y: 0 }, { x: t, y: 9999 }], borderColor: '#9b7fe8', borderWidth: 1, borderDash: [3, 3], pointRadius: 0, fill: false, yAxisID: 'y1' });
+  anaCharts.adv.update();
+});
+let zoomLv = 1;
+document.getElementById('btnZoomIn').addEventListener('click',    () => applyZoom(zoomLv * 1.5));
+document.getElementById('btnZoomOut').addEventListener('click',   () => applyZoom(Math.max(1, zoomLv / 1.5)));
+document.getElementById('btnZoomReset').addEventListener('click', () => applyZoom(1));
+function applyZoom(lv) {
+  zoomLv = lv;
+  if (!anaCharts.adv) return;
+  const maxT = S.hr.length ? S.hr[S.hr.length-1].t : 60;
+  anaCharts.adv.options.scales.x.max = lv === 1 ? undefined : maxT / lv;
+  anaCharts.adv.update();
+}
+['adv_whr', 'adv_wgsr', 'adv_wrr'].forEach(id => {
+  document.getElementById(id).addEventListener('input', function () {
+    document.getElementById(id + '_v').textContent = parseFloat(this.value).toFixed(2);
+  });
+});
+
+// ============================================================
+// COMPARE PAGE
+// ============================================================
+const compareSets = [];
+let cmpCharts = {};
+let cmpAuxLines = { score: [], hr: [], gsr: [], resp: [] };
+
+document.getElementById('btnAddCompare').addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.csv';
+  inp.addEventListener('change', function () {
+    const file = this.files[0]; if (!file) return;
+    Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => {
+      const pts = r.data.map(row => ({
+        t:     parseFloat(row.time_s || row.sec || 0),
+        score: parseFloat(row.Score || row.score || 0),
+        hr:    parseFloat(row.hr_raw || row.HR || 0),
+        gsr:   parseFloat(row.gsr_raw || row.GSR || 0),
+        resp:  parseFloat(row.resp_raw || row.Resp || 0),
+        bpm:   parseFloat(row.BPM || 0),
+        rpm:   parseFloat(row.RPM || 0),
+      })).filter(p => !isNaN(p.t));
+      compareSets.push({ name: file.name, pts });
+      renderCompare();
+    }});
+  });
+  inp.click();
+});
+document.getElementById('btnClearCompare').addEventListener('click', () => {
+  compareSets.splice(0);
+  cmpAuxLines = { score: [], hr: [], gsr: [], resp: [] };
+  renderCompare();
+});
+document.getElementById('btnCmpAddLine').addEventListener('click', () => {
+  const t = parseFloat(document.getElementById('cmpAuxT').value);
+  if (isNaN(t)) return;
+  const target = document.getElementById('cmpAuxTarget').value;
+  cmpAuxLines[target].push(t);
+  renderCompare();
+});
+document.getElementById('btnCmpClearLines').addEventListener('click', () => {
+  cmpAuxLines = { score: [], hr: [], gsr: [], resp: [] };
+  renderCompare();
+});
+
+function cmpStatsRow(set, idx, colors) {
+  const pts = set.pts;
+  if (!pts.length) return '';
+  const avg = key => pts.reduce((a, p) => a + p[key], 0) / pts.length;
+  const max = key => Math.max(...pts.map(p => p[key]));
+  const dur = pts[pts.length-1].t - pts[0].t;
+  const events60 = pts.filter(p => p.score >= 60).length;
+  const c = colors[idx % colors.length];
+  return `<tr>
+    <td style="color:${c};font-weight:600">${set.name}</td>
+    <td>${dur.toFixed(0)}</td>
+    <td class="hl">${avg('score').toFixed(1)}</td>
+    <td>${max('score').toFixed(1)}</td>
+    <td>${events60}</td>
+    <td>${avg('hr').toFixed(1)}</td>
+    <td>${avg('gsr').toFixed(1)}</td>
+    <td>${avg('resp').toFixed(1)}</td>
+  </tr>`;
+}
+
+function auxLineDatasets(key, colors) {
+  return (cmpAuxLines[key] || []).map((t, i) => ({
+    label: `Line @${t}s`,
+    data: [{ x: t, y: 0 }, { x: t, y: 99999 }],
+    borderColor: '#ffffff55',
+    borderWidth: 1,
+    borderDash: [3, 3],
+    pointRadius: 0,
+    fill: false,
+  }));
+}
+
+function renderCompare() {
+  const colors = ['#4a9eff', '#f2666a', '#f0b429', '#3ecf8e', '#9b7fe8', '#ff6ec7'];
+  const fileList = document.getElementById('compareFileList');
+  fileList.innerHTML = compareSets.map((s, i) =>
+    `<span style="color:${colors[i%colors.length]};margin-right:12px">■ [${i+1}] ${s.name}</span>`
+  ).join('');
+
+  // Stats
+  const tbody = document.getElementById('cmpStatsBody');
+  tbody.innerHTML = compareSets.map((s, i) => cmpStatsRow(s, i, colors)).join('');
+
+  const legOpts = {
+    plugins: { legend: { display: true, labels: { color: '#7a8099', font: { size: 9, family: 'IBM Plex Mono' }, boxWidth: 10, padding: 8,
+      filter: item => !item.text.startsWith('Line @')
+    }}}
+  };
+
+  const mkDs = (s, key, i) => ({
+    label: `#${i+1} ${s.name}`,
+    data: s.pts.map(p => ({ x: p.t, y: p[key] })),
+    borderColor: colors[i % colors.length],
+    borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.2,
+  });
+
+  ['score','hr','gsr','resp'].forEach(key => {
+    const chartId = { score:'cCompareScore', hr:'cCompareHR', gsr:'cCompareGSR', resp:'cCompareResp' }[key];
+    if (cmpCharts[key]) cmpCharts[key].destroy();
+    const datasets = [
+      ...compareSets.map((s, i) => mkDs(s, key, i)),
+      ...auxLineDatasets(key, colors),
+    ];
+    cmpCharts[key] = mkLineChart(chartId, datasets, legOpts);
+  });
+}
+
+
+// ============================================================
+// CSV IMPORT / EXPORT
+// ============================================================
+document.getElementById('btnImportCsv').addEventListener('click', () => document.getElementById('fileInputCsv').click());
+document.getElementById('fileInputCsv').addEventListener('change', function () {
+  const file = this.files[0]; if (!file) return;
+  document.getElementById('anaFileName').textContent = file.name;
+  Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => {
+    S.hr = []; S.gsr = []; S.resp = []; S.score = [];
+    // Reset baseline before loading
+    S.base = { hr: null, gsr: null, resp: null };
+    r.data.forEach(row => {
+      const t = parseFloat(row.time_s || row.sec);
+      if (isNaN(t)) return;
+      if (row.hr_raw)   S.hr.push({ t, raw: parseFloat(row.hr_raw),   bpm: parseFloat(row.BPM || 0) });
+      if (row.gsr_raw)  S.gsr.push({ t, raw: parseFloat(row.gsr_raw) });
+      if (row.resp_raw) S.resp.push({ t, raw: parseFloat(row.resp_raw), rpm: parseFloat(row.RPM || 0) });
+      if (row.Score)    S.score.push({ t, val: parseFloat(row.Score) });
+      // Restore baseline from CSV columns if present
+      if (row.base_hr   && !S.base.hr)   S.base.hr   = parseFloat(row.base_hr);
+      if (row.base_gsr  && !S.base.gsr)  S.base.gsr  = parseFloat(row.base_gsr);
+      if (row.base_resp && !S.base.resp) S.base.resp = parseFloat(row.base_resp);
+    });
+    // If no baseline in CSV, try to infer from first few rows as "calm" estimate
+    if (!S.base.hr && S.hr.length >= 5) {
+      const n = Math.min(10, S.hr.length);
+      S.base.hr   = S.hr.slice(0,n).reduce((a,p)=>a+p.raw,0)/n;
+      S.base.gsr  = S.gsr.slice(0,n).reduce((a,p)=>a+p.raw,0)/Math.min(n,S.gsr.length);
+      S.base.resp = S.resp.slice(0,n).reduce((a,p)=>a+p.raw,0)/Math.min(n,S.resp.length);
+      document.getElementById('anaFileName').textContent = file.name + ' (基準值從前10點估算)';
+    }
+    updateBaselineUI();
+    refreshAnalysis();
+  }});
+});
+
+function exportCsv() {
+  if (!S.hr.length) { alert('尚無數據'); return; }
+  // Include baseline in every row so it survives re-import
+  const bHR   = S.base.hr   || '';
+  const bGSR  = S.base.gsr  || '';
+  const bResp = S.base.resp || '';
+  let csv = 'time_s,gsr_raw,hr_raw,resp_raw,BPM,RPM,Score,base_hr,base_gsr,base_resp\n';
+  S.hr.forEach((hr, i) => {
+    const gsr  = S.gsr[i]  || {};
+    const resp = S.resp[i] || {};
+    const sc   = S.score[i]|| {};
+    csv += `${hr.t.toFixed(2)},${gsr.raw||''},${hr.raw},${resp.raw||''},${hr.bpm||''},${resp.rpm||''},${sc.val||''},${bHR},${bGSR},${bResp}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  saveAs(blob, `biometric_${new Date().toISOString().slice(0,19).replace(/[:\-T]/g,'')}.csv`);
+}
+document.getElementById('btnExportAnalysisCsv').addEventListener('click', exportCsv);
+
+// ============================================================
+// SETTINGS
+// ============================================================
+document.getElementById('btnSave').addEventListener('click', () => {
+  let raw_hr   = parseFloat(document.getElementById('cfg_w_hr').value)   || 0.4;
+  let raw_gsr  = parseFloat(document.getElementById('cfg_w_gsr').value)  || 0.2;
+  let raw_resp = parseFloat(document.getElementById('cfg_w_resp').value) || 0.4;
+
+  // Auto-normalize weights to sum = 1
+  const wSum = raw_hr + raw_gsr + raw_resp;
+  if (wSum > 0) {
+    raw_hr   = raw_hr   / wSum;
+    raw_gsr  = raw_gsr  / wSum;
+    raw_resp = raw_resp / wSum;
+  }
+  // Update inputs to show normalized values
+  document.getElementById('cfg_w_hr').value   = raw_hr.toFixed(3);
+  document.getElementById('cfg_w_gsr').value  = raw_gsr.toFixed(3);
+  document.getElementById('cfg_w_resp').value = raw_resp.toFixed(3);
+
+  CFG.w_hr         = raw_hr;
+  CFG.w_gsr        = raw_gsr;
+  CFG.w_resp       = raw_resp;
+  CFG.rest_hr      = parseInt(document.getElementById('cfg_rest_hr').value)        || 70;
+  CFG.max_hr       = parseInt(document.getElementById('cfg_max_hr').value)         || 120;
+  CFG.calm_resp    = parseInt(document.getElementById('cfg_calm_resp').value)      || 12;
+  CFG.stress_resp  = parseInt(document.getElementById('cfg_stress_resp').value)    || 24;
+  CFG.calib        = parseInt(document.getElementById('cfg_calib').value)          || 10;
+  CFG.gsr_thresh   = parseFloat(document.getElementById('cfg_gsr_thresh').value)   || 15;
+  CFG.hr_thresh    = parseInt(document.getElementById('cfg_hr_thresh').value)      || 500;
+  CFG.resp_thresh  = parseInt(document.getElementById('cfg_resp_thresh').value)    || 200;
+  CFG.data_rate    = parseInt(document.getElementById('cfg_data_rate').value)      || 20;
+  CFG.chart_rate   = parseInt(document.getElementById('cfg_chart_rate').value)     || 10;
+
+  // 更新公式顯示
+  document.getElementById('fw_hr').textContent   = CFG.w_hr.toFixed(2);
+  document.getElementById('fw_gsr').textContent  = CFG.w_gsr.toFixed(2);
+  document.getElementById('fw_resp').textContent = CFG.w_resp.toFixed(2);
+
+  // 權重總和 — 標示正常（已自動正規化）
+  const wtEl = document.getElementById('weightTotal');
+  wtEl.textContent = `總和：1.00（已自動正規化）`;
+  wtEl.className = 'weight-total wt-ok';
+
+  // 若已連線，同步至 ESP32（BLE 或 USB 皆可）
+  if (S.connMode) {
+    deviceWrite(`SET_W_HR=${CFG.w_hr.toFixed(3)}`);
+    deviceWrite(`SET_W_GSR=${CFG.w_gsr.toFixed(3)}`);
+    deviceWrite(`SET_W_RESP=${CFG.w_resp.toFixed(3)}`);
+    deviceWrite(`SET_CALIB=${CFG.calib}`);
+    deviceWrite(`SET_REST_HR=${CFG.rest_hr}`);
+    deviceWrite(`SET_MAX_HR=${CFG.max_hr}`);
+    deviceWrite(`SET_CALM_RESP=${CFG.calm_resp}`);
+    deviceWrite(`SET_STRESS_RESP=${CFG.stress_resp}`);
+    deviceWrite(`SET_HR_THRESH=${CFG.hr_thresh}`);
+    deviceWrite(`SET_RESP_THRESH=${CFG.resp_thresh}`);
+    deviceWrite(`SET_RATE=${CFG.data_rate}`);
+  }
+
+  const btn = document.getElementById('btnSave');
+  btn.textContent = S.connMode ? '已儲存並同步' : '已儲存（未連線）';
+  setTimeout(() => btn.textContent = '儲存並同步 ESP32', 1800);
+});
+
+// ============================================================
+// SETTINGS SLIDER SYNC
+// ============================================================
+const sliderPairs = [
+  ['sl_w_hr',      'cfg_w_hr'],
+  ['sl_w_gsr',     'cfg_w_gsr'],
+  ['sl_w_resp',    'cfg_w_resp'],
+  ['sl_rest_hr',   'cfg_rest_hr'],
+  ['sl_max_hr',    'cfg_max_hr'],
+  ['sl_calm_resp', 'cfg_calm_resp'],
+  ['sl_stress_resp','cfg_stress_resp'],
+  ['sl_calib',     'cfg_calib'],
+  ['sl_gsr_thresh','cfg_gsr_thresh'],
+  ['sl_hr_thresh', 'cfg_hr_thresh'],
+  ['sl_resp_thresh','cfg_resp_thresh'],
+  ['sl_data_rate', 'cfg_data_rate'],
+  ['sl_chart_rate','cfg_chart_rate'],
+];
+sliderPairs.forEach(([slId, inId]) => {
+  const sl = document.getElementById(slId);
+  const inp = document.getElementById(inId);
+  if (!sl || !inp) return;
+  sl.addEventListener('input', () => {
+    inp.value = sl.value;
+    updateSettingsPreview();
+    // 即時顯示 ms/筆
+    if (slId === 'sl_data_rate') {
+      const msEl = document.getElementById('data_rate_ms');
+      if (msEl) msEl.textContent = `= ${Math.round(1000/parseInt(sl.value))}ms/筆`;
+    }
+  });
+  inp.addEventListener('input', () => { sl.value = inp.value; updateSettingsPreview(); });
+});
+
+function updateSettingsPreview() {
+  const g = id => parseFloat(document.getElementById(id).value) || 0;
+  const wSum = g('cfg_w_hr') + g('cfg_w_gsr') + g('cfg_w_resp');
+  const whr  = wSum > 0 ? g('cfg_w_hr')   / wSum : 0.4;
+  const wgsr = wSum > 0 ? g('cfg_w_gsr')  / wSum : 0.2;
+  const wrr  = wSum > 0 ? g('cfg_w_resp') / wSum : 0.4;
+  const safe = el => { const e = document.getElementById(el); return e ? e : { textContent: '' }; };
+  safe('prev_whr').textContent        = whr.toFixed(2);
+  safe('prev_wgsr').textContent       = wgsr.toFixed(2);
+  safe('prev_wrr').textContent        = wrr.toFixed(2);
+  safe('prev_max_hr').textContent     = document.getElementById('cfg_max_hr')?.value    || '120';
+  safe('prev_rest_hr').textContent    = document.getElementById('cfg_rest_hr')?.value   || '70';
+  safe('prev_stress_resp').textContent= document.getElementById('cfg_stress_resp')?.value || '24';
+  safe('prev_gsr_thresh').textContent = document.getElementById('cfg_gsr_thresh')?.value || '15';
+}
+updateSettingsPreview();
+
+// Weight live preview
+['cfg_w_hr','cfg_w_gsr','cfg_w_resp'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    const t = (parseFloat(document.getElementById('cfg_w_hr').value)   || 0)
+            + (parseFloat(document.getElementById('cfg_w_gsr').value)  || 0)
+            + (parseFloat(document.getElementById('cfg_w_resp').value) || 0);
+    const el = document.getElementById('weightTotal');
+    if (Math.abs(t - 1) < 0.01) {
+      el.textContent = `總和：${t.toFixed(2)} ✓`;
+      el.className = 'weight-total wt-ok';
+    } else {
+      el.textContent = `總和：${t.toFixed(2)}（儲存時將自動正規化為 1.00）`;
+      el.className = 'weight-total wt-bad';
+    }
+  });
+});
+
+// ============================================================
+// COPY TEMPLATE
+// ============================================================
+function doCopy(id, btn) {
+  navigator.clipboard.writeText(document.getElementById(id).textContent)
+    .then(() => { btn.textContent = '已複製'; setTimeout(() => btn.textContent = '複製', 1500); });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+initLiveCharts();
+</script>
+</body>
+</html>
